@@ -1,0 +1,15 @@
+# Main worker + Qwen3-TTS + faster-whisper environment (Python 3.12).
+# Install with:  uv pip install --python <env> --torch-backend=cu128 --overrides overrides-main.txt -r main.txt
+# torch 2.11.0 is the last CUDA 12.8 build; cu128 wheels carry sm_120 (Blackwell) kernels and share
+# libcublas.so.12 with CTranslate2 (faster-whisper GPU) so no second CUDA runtime is needed.
+torch==2.11.0
+torchaudio==2.11.0
+qwen-tts==0.1.1            # pins transformers==4.57.3, accelerate==1.12.0 (transformers 5.x breaks qwen-tts)
+librosa==0.11.0            # 1.0 removed the audioread backend; 0.11 is what both engines were released against
+faster-whisper==1.2.1
+ctranslate2>=4.7.0,<5
+sounddevice==0.5.6
+soundfile==0.14.0
+numpy
+pydantic>=2.7
+huggingface_hub

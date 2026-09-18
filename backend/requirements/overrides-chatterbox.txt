@@ -1,0 +1,5 @@
+# Replace only the GPU-incompatible pins; keep transformers==5.2.0, diffusers, numpy<2 etc. as upstream requires.
+torch==2.11.0
+torchaudio==2.11.0
+gradio; sys_platform == 'never'
+pre-commit; sys_platform == 'never'

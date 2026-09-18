@@ -1,0 +1,2 @@
+# qwen-tts depends on gradio only for its web demo (qwen_tts/cli/demo.py); we never import it.
+gradio; sys_platform == 'never'

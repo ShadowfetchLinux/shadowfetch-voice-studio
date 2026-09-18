@@ -1,0 +1,10 @@
+# Optional Chatterbox-Turbo engine environment (Python 3.12).
+# Install with:  uv pip install --python <env> --torch-backend=cu128 --overrides overrides-chatterbox.txt -r chatterbox.txt
+torch==2.11.0
+torchaudio==2.11.0
+chatterbox-tts==0.1.7      # upstream pins torch==2.6.0 (cu124, no sm_120) — overridden below; everything else kept as pinned
+resemble-perth @ git+https://github.com/resemble-ai/Perth.git@master   # PyPI 1.0.1 breaks on setuptools>=81 (pkg_resources)
+librosa==0.11.0
+sounddevice==0.5.6
+soundfile==0.14.0
+pydantic>=2.7
