@@ -35,7 +35,7 @@ git clone https://github.com/QwenLM/Qwen3-TTS && cd Qwen3-TTS
 ../backend/.venv/bin/python finetuning/prepare_data.py --device cuda:0 --tokenizer_model_path Qwen/Qwen3-TTS-Tokenizer-12Hz \
     --input_jsonl <export>/train_raw.jsonl --output_jsonl train_with_codes.jsonl
 # train: --init_model_path must be a LOCAL directory (e.g. the app's snapshot under
-#   ~/.local/share/shadowfetch-voice-studio/models/hf/models--Qwen--Qwen3-TTS-12Hz-1.7B-Base/snapshots/<sha>/)
+#   ~/.local/share/com.shadowfetch.voicestudio/models/hf/models--Qwen--Qwen3-TTS-12Hz-1.7B-Base/snapshots/<sha>/)
 ../backend/.venv/bin/python finetuning/sft_12hz.py --init_model_path <local model dir> --output_model_path out \
     --train_jsonl train_with_codes.jsonl --batch_size 1 --lr 2e-5 --num_epochs 3 --speaker_name myvoice
 ```

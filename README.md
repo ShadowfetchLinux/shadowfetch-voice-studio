@@ -35,7 +35,7 @@ scripts/build.sh         # .deb (+ AppImage) into src-tauri/target/release/bundl
 
 Installing the `.deb` puts the app in your application menu. On first launch the guided setup checks
 FFmpeg, GPU, audio devices, storage and models, and offers to create the Python runtime under
-`~/.local/share/shadowfetch-voice-studio/runtime`.
+`~/.local/share/com.shadowfetch.voicestudio/runtime`.
 
 ## Workflow
 
@@ -51,10 +51,10 @@ FFmpeg, GPU, audio devices, storage and models, and offers to create the Python 
 
 | | |
 |-|-|
-| projects, recordings, voices, masters, SQLite DB | `~/.local/share/shadowfetch-voice-studio/` |
-| settings | `~/.config/shadowfetch-voice-studio/settings.json` |
-| regenerable caches (peaks, engine prompts) | `~/.cache/shadowfetch-voice-studio/` |
-| models (Hugging Face cache layout) | `~/.local/share/shadowfetch-voice-studio/models/hf/` |
+| projects, recordings, voices, masters, SQLite DB | `~/.local/share/com.shadowfetch.voicestudio/` |
+| settings | `~/.config/com.shadowfetch.voicestudio/settings.json` |
+| regenerable caches (peaks, engine prompts) | `~/.cache/com.shadowfetch.voicestudio/` |
+| models (Hugging Face cache layout) | `~/.local/share/com.shadowfetch.voicestudio/models/hf/` |
 
 Local storage is **not** encrypted; treat the data directory like any other private files.
 

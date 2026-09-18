@@ -20,8 +20,8 @@ fail() { printf '  \033[31m✖\033[0m %s\n' "$*"; FAILS=$((FAILS+1)); SUMMARY+=(
 have() { command -v "$1" >/dev/null 2>&1; }
 devfail() { if [[ $DEV == 1 ]]; then fail "$@"; else warn "$@ (needed only to build the desktop app; run with --dev to enforce)"; fi; }
 
-APP_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/shadowfetch-voice-studio"
-SETTINGS="${XDG_CONFIG_HOME:-$HOME/.config}/shadowfetch-voice-studio/settings.json"
+APP_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/com.shadowfetch.voicestudio"
+SETTINGS="${XDG_CONFIG_HOME:-$HOME/.config}/com.shadowfetch.voicestudio/settings.json"
 MODELS_DIR="$APP_DATA/models"
 if [[ -f "$SETTINGS" ]] && have python3; then
   custom="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('models_dir',''))" "$SETTINGS" 2>/dev/null || true)"

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .protocol import PERMISSION_DENIED, WorkerError
 
-APP_SLUG = "shadowfetch-voice-studio"
+APP_SLUG = "com.shadowfetch.voicestudio"   # matches the Tauri identifier so the shell, worker and asset scope agree
 
 
 def _xdg(var: str, default: str) -> Path:

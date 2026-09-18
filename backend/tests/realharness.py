@@ -21,7 +21,7 @@ realmodel = pytest.mark.skipif(not REAL, reason="set SFVS_REAL_MODELS=1 to run a
 
 # The shared scratch dir lets test_real_whisper transcribe what test_real_qwen produced.
 SCRATCH = Path(os.environ.get("SFVS_REAL_SCRATCH") or (Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
-                                                        / "shadowfetch-voice-studio" / "realtests"))
+                                                        / "com.shadowfetch.voicestudio" / "realtests"))
 REPORT = SCRATCH / "report.json"
 
 # ~11 s at espeak's default rate; every word is plain English so the ASR check is fair.

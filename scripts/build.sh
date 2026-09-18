@@ -10,6 +10,7 @@ die() { printf '\033[31m✖\033[0m %s\n' "$*" >&2; exit 1; }
 pkg-config --exists webkit2gtk-4.1 gtk+-3.0 2>/dev/null || die "Tauri system libraries missing (libwebkit2gtk-4.1-dev, libgtk-3-dev, librsvg2-dev, libayatana-appindicator3-dev, libxdo-dev, libssl-dev)"
 command -v cargo >/dev/null || die "cargo (Rust) is required"
 [[ -f "$ROOT/backend/requirements/main.lock.txt" ]] || echo "note: backend/requirements/main.lock.txt missing — run scripts/bootstrap.sh to generate locks"
+find "$ROOT/backend/shadowfetch_worker" -name __pycache__ -type d -prune -exec rm -rf {} +   # keep bytecode out of the package
 cd "$ROOT/frontend" && { [[ -d node_modules ]] || npm install; }
 cd "$ROOT/src-tauri"
 BUNDLES="deb,appimage"; [[ "${1:-}" == "--deb-only" ]] && BUNDLES="deb"

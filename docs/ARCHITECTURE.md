@@ -48,7 +48,7 @@
 | `tests/` | backend pytest (mocked + `-m realmodel`), frontend vitest, IPC tests |
 | `docs/` | this file, PROTOCOL.md, MODEL_LICENSES.md, THIRD_PARTY_NOTICES.md, TEST_REPORT.md |
 
-## Data layout (`$XDG_DATA_HOME/shadowfetch-voice-studio`)
+## Data layout (`$XDG_DATA_HOME/com.shadowfetch.voicestudio`)
 ```
 studio.db                      SQLite (WAL); migrations in backend/.../store/migrations
 recordings/<asset_id>/         original.<ext> (untouched) + working.wav (float32 mono 48k) + meta.json
@@ -59,7 +59,7 @@ models/hf/                     Hugging Face cache (HF_HUB_CACHE) — outside the
 runtime/envs/                  managed Python envs (packaged mode)
 logs/worker.log                redacted
 ```
-Config: `$XDG_CONFIG_HOME/shadowfetch-voice-studio/settings.json`. Cache: `$XDG_CACHE_HOME/…/{peaks,prompts,tmp}` — deletable.
+Config: `$XDG_CONFIG_HOME/com.shadowfetch.voicestudio/settings.json`. Cache: `$XDG_CACHE_HOME/…/{peaks,prompts,tmp}` — deletable.
 
 ## Generation pipeline (Create page)
 1. `tts.plan` splits the script into paragraphs → sentences → segments ≤ `max_chars` (engine limit clamps it),
