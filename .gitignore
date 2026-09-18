@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv*/
+backend/.venv*/
+backend/envs/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node / Vite
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/schemas/
+src-tauri/binaries/
+
+# Model weights, runtimes, caches — never committed
+models/
+runtime/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.gguf
+
+# Local data
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.log
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
