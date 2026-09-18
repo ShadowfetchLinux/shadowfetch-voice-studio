@@ -2,7 +2,7 @@
  * Pure helpers for the Create page: counting, selection→segment mapping, token insertion, duration
  * estimates and normalisation of worker result shapes. No React, no API calls — unit-tested directly.
  */
-import type { Capabilities, ControlSpec, Project, Segment, Take } from "@/lib/protocol";
+import type { Capabilities, ControlSpec, Project, ProjectDetail, Segment, Take } from "@/lib/protocol";
 import { clamp } from "@/lib/format";
 import type { PlanOptionsState, SegmentStatus, SegmentView, TextRange } from "./types";
 
@@ -175,9 +175,10 @@ export function pickLanguage(caps: Capabilities | null | undefined, preferred: s
 // Result-shape normalisation
 // ---------------------------------------------------------------------------
 
-type RawSegment = Partial<Segment> & { index?: number; idx?: number; char_count?: number; takes?: Take[]; take_count?: number; selected_take_id?: string | null };
+/** A `projects.get` segment (all fields) or a `tts.plan` segment (no id/takes/selected_take_id yet). */
+type RawSegment = Partial<Segment> & { index: number; takes?: Take[] };
 
-/** Build a `SegmentView` from a `tts.plan` segment or a `projects.get` segment (index vs idx, takes optional). */
+/** Build a `SegmentView` from a `tts.plan` segment or a `projects.get` segment (takes optional for planned ones). */
 export function toSegmentView(raw: RawSegment, takesOverride?: Take[]): SegmentView {
   const takes = [...(takesOverride ?? raw.takes ?? [])].sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? "") || a.id.localeCompare(b.id));
   // An explicit null means "deselected" (projects.select_take allows it); only an absent field defaults to the newest take.
@@ -186,7 +187,7 @@ export function toSegmentView(raw: RawSegment, takesOverride?: Take[]): SegmentV
   const normalized = raw.normalized_text ?? text;
   return {
     id: raw.id ?? null,
-    index: raw.index ?? raw.idx ?? 0,
+    index: raw.index,
     paragraph: raw.paragraph ?? 0,
     text,
     normalized_text: normalized,
@@ -206,19 +207,11 @@ export interface ProjectViewData {
   segments: SegmentView[];
 }
 
-/**
- * `projects.get` returns `{project, script, segments, exports}` (backend jobs/projects.py); the protocol
- * mirror types it flat. Accept both.
- */
-export function normalizeProjectDetail(raw: unknown): ProjectViewData {
-  const r = (raw ?? {}) as Record<string, unknown>;
-  const project = ((r.project as Project | undefined) ?? (r as unknown as Project)) as Project;
-  const script = r.script as { text?: string; version?: number } | null | undefined;
-  const scriptText = typeof r.script_text === "string" ? r.script_text : (script?.text ?? "");
-  const scriptVersion = typeof r.script_version === "number" ? r.script_version : (script?.version ?? null);
-  const segs = Array.isArray(r.segments) ? (r.segments as RawSegment[]) : [];
-  const segments = segs.map((s) => toSegmentView(s)).sort((a, b) => a.index - b.index);
-  return { project: { ...project, settings: project.settings ?? {} }, scriptText, scriptVersion, segments };
+/** Flatten a `projects.get` result (`{project, script, segments, exports}`, jobs/projects.py) into the Create page's view data. */
+export function normalizeProjectDetail(raw: ProjectDetail): ProjectViewData {
+  const project = raw.project;
+  const segments = (raw.segments ?? []).map((s) => toSegmentView(s)).sort((a, b) => a.index - b.index);
+  return { project: { ...project, settings: project.settings ?? {} }, scriptText: raw.script?.text ?? "", scriptVersion: raw.script?.version ?? null, segments };
 }
 
 /** Read plan options stored on a project, falling back to app defaults. */

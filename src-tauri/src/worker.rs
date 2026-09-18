@@ -123,6 +123,9 @@ struct Inner {
     /// Restart/shutdown requests; every `send` wakes the loop (tokio's watch marks a change
     /// even when the value is equal).
     signal: watch::Sender<Signal>,
+    /// `(running, stopped)` mirror of `status`, so requests can wait for the worker to
+    /// come up (the webview boots long before python prints `ready`).
+    readiness: watch::Sender<(bool, bool)>,
     shutting_down: AtomicBool,
     /// Unix ms of the last line read from the worker's stdout (liveness hint).
     last_line_ms: AtomicU64,
@@ -156,6 +159,7 @@ impl Supervisor {
         cfg: SupervisorConfig,
     ) -> Self {
         let (signal, _) = watch::channel(Signal::None);
+        let (readiness, _) = watch::channel((false, false));
         Self {
             inner: Arc::new(Inner {
                 sink,
@@ -167,6 +171,7 @@ impl Supervisor {
                 pending: Mutex::new(HashMap::new()),
                 stdin: AsyncMutex::new(None),
                 signal,
+                readiness,
                 shutting_down: AtomicBool::new(false),
                 last_line_ms: AtomicU64::new(0),
                 restart_times: Mutex::new(VecDeque::new()),
@@ -192,7 +197,9 @@ impl Supervisor {
         s
     }
 
-    /// Send a request and wait for its result or error.
+    /// Send a request and wait for its result or error. While the worker is (re)starting the
+    /// request waits for `ready` (up to `ready_timeout`); it fails with `WORKER_DOWN` right
+    /// away once the supervisor has given up (`stopped`).
     pub async fn request(
         &self,
         id: String,
@@ -216,6 +223,14 @@ impl Supervisor {
     pub fn restart(&self) {
         info!("worker restart requested");
         self.inner.restart_times.lock().unwrap().clear();
+        // Mark the worker as down right away so requests made after this call (the UI
+        // re-boots straight after "Restart worker") wait for the new process instead of
+        // racing the old one; the loop fails whatever was still pending.
+        self.inner.set_status(|s| {
+            s.running = false;
+            s.stopped = false;
+        });
+        self.inner.emit_status();
         self.inner.send_signal(Signal::Restart { manual: true });
     }
 
@@ -258,6 +273,16 @@ impl Inner {
         let mut s = self.status.lock().unwrap();
         f(&mut s);
         s.pending = self.pending.lock().unwrap().len();
+        // Published under the status lock so waiters never observe a stale pair.
+        self.readiness.send_if_modified(|r| {
+            let next = (s.running, s.stopped);
+            if *r == next {
+                false
+            } else {
+                *r = next;
+                true
+            }
+        });
         s.clone()
     }
 
@@ -296,15 +321,51 @@ impl Inner {
         Ok(())
     }
 
-    async fn request(&self, id: String, method: &str, params: Value) -> Result<Value, WorkerError> {
-        if !self.status.lock().unwrap().running {
-            let s = self.status.lock().unwrap().clone();
-            let msg = match &s.last_error {
-                Some(e) => format!("The worker is not running ({e})."),
-                None => "The worker is not running.".to_string(),
-            };
-            return Err(WorkerError::worker_down(msg, s.stopped));
+    /// `WORKER_DOWN` describing the current state (`last_error`, `stopped`).
+    fn down_error(&self) -> WorkerError {
+        let s = self.status.lock().unwrap();
+        let msg = match &s.last_error {
+            Some(e) => format!("The worker is not running ({e})."),
+            None => "The worker is not running.".to_string(),
+        };
+        WorkerError::worker_down(msg, s.stopped)
+    }
+
+    /// Wait until the worker is running. Returns `WORKER_DOWN` at once when the supervisor
+    /// has given up (`stopped`), or after `ready_timeout` when it stays down (crash loop,
+    /// slow start).
+    async fn wait_ready(&self) -> Result<(), WorkerError> {
+        let mut rx = self.readiness.subscribe();
+        let wait = async {
+            loop {
+                let (running, stopped) = *rx.borrow_and_update();
+                if running {
+                    return true;
+                }
+                if stopped || rx.changed().await.is_err() {
+                    return false;
+                }
+            }
+        };
+        match timeout(self.cfg.ready_timeout, wait).await {
+            Ok(true) => Ok(()),
+            _ => Err(self.down_error()),
         }
+    }
+
+    /// Gated request: waits for the worker to be ready first (see [`Supervisor::request`]).
+    async fn request(&self, id: String, method: &str, params: Value) -> Result<Value, WorkerError> {
+        self.wait_ready().await?;
+        self.send_request(id, method, params).await
+    }
+
+    /// Send a request to the current worker without waiting for readiness (health pings).
+    async fn send_request(
+        &self,
+        id: String,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, WorkerError> {
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap().insert(id.clone(), tx);
         let line = json!({
@@ -550,6 +611,11 @@ impl Inner {
                     }
                 }
                 Ok(None) => break,
+                // tokio's `Lines` drops the offending line and stays usable; giving up here
+                // would strand every pending request of a worker that is still alive.
+                Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+                    warn!("dropping non-UTF-8 worker stdout line: {e}");
+                }
                 Err(e) => {
                     warn!("reading worker stdout failed: {e}");
                     break;
@@ -575,7 +641,7 @@ impl Inner {
             let id = uuid::Uuid::new_v4().to_string();
             match timeout(
                 self.cfg.health_timeout,
-                self.request(id.clone(), "system.ping", json!({})),
+                self.send_request(id.clone(), "system.ping", json!({})),
             )
             .await
             {
@@ -633,7 +699,8 @@ async fn supervise(inner: Arc<Inner>) {
             ExitReason::Shutdown => ("shutdown".to_string(), false),
             ExitReason::Failed(e) => (e.clone(), false),
         };
-        let was_running = inner.status.lock().unwrap().running;
+        // `pid` (not `running`) because `restart()` clears `running` before the loop runs.
+        let was_running = inner.status.lock().unwrap().pid.is_some();
         if was_running {
             inner.set_status(|s| s.restarts += 1);
         }

@@ -31,16 +31,16 @@ function useShellSubscriptions() {
   const setWorkerStatus = useAppStore((s) => s.setWorkerStatus);
   const applyEngineState = useAppStore((s) => s.applyEngineState);
   const applyModelState = useAppStore((s) => s.applyModelState);
-  const loadEngines = useAppStore((s) => s.loadEngines);
-  const loadModels = useAppStore((s) => s.loadModels);
   useEffect(() => {
-    void boot();
+    // Subscribe before the first boot so a worker that is still starting cannot slip through unnoticed:
+    // boot() defers while `running` is false and this handler runs it once the supervisor reports the
+    // worker up — the same path (re)loads everything after a restart.
     const offStatus = api.events.onWorkerStatus((s) => {
       const prev = useAppStore.getState().workerStatus;
       setWorkerStatus(s);
-      // Worker came (back) up: engine/model state is fresh in the new process.
-      if (s.running && prev && !prev.running) void Promise.all([loadEngines(), loadModels()]);
+      if (s.running && !prev?.running) void boot();
     });
+    void boot();
     const offEngine = api.events.on("engine.state", applyEngineState);
     const offModel = api.events.on("model.state", applyModelState);
     return () => {
@@ -48,7 +48,7 @@ function useShellSubscriptions() {
       offEngine();
       offModel();
     };
-  }, [boot, setWorkerStatus, applyEngineState, applyModelState, loadEngines, loadModels]);
+  }, [boot, setWorkerStatus, applyEngineState, applyModelState]);
 }
 
 export default function App() {
@@ -60,6 +60,7 @@ export default function App() {
   const bootError = useAppStore((s) => s.bootError);
   const boot = useAppStore((s) => s.boot);
   const params = useAppStore((s) => s.params);
+  const workerStarting = useAppStore((s) => s.workerStatus != null && !s.workerStatus.running);
 
   // Fresh page → start at the top (a page that targets a section scrolls itself).
   useEffect(() => {
@@ -73,8 +74,8 @@ export default function App() {
         <Header />
         <main className="flex-1 min-h-0 overflow-y-auto" id="page">
           {!booted ? (
-            <div className="flex items-center justify-center h-full text-muted gap-3">
-              <Spinner size={20} /> Connecting to the worker…
+            <div className="flex items-center justify-center h-full text-muted gap-3" role="status">
+              <Spinner size={20} /> {workerStarting ? "Starting local worker…" : "Connecting to the worker…"}
             </div>
           ) : bootError ? (
             <div className="max-w-[560px] mx-auto mt-16 panel p-6 flex flex-col gap-4">

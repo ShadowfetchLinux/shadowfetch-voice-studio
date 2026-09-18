@@ -18,8 +18,8 @@ export interface VoiceDetailProps {
   onChanged: () => void;
 }
 
-/** Path the reference's audio can be analysed from, when the worker attached the asset. */
-function referenceAudioPath(r: Reference): string | null {
+/** Path the reference's audio can be transcribed from: the decoded working file, else the original (`voices.*` attach the asset summary). */
+export function referenceAudioPath(r: Reference): string | null {
   return r.asset?.working_path ?? r.asset?.original_path ?? null;
 }
 
@@ -133,7 +133,7 @@ export function VoiceDetail({ voice, onAddReference, onChanged }: VoiceDetailPro
           })}
         </ul>
       )}
-      {!refs.some((r) => referenceAudioPath(r)) && refs.length > 0 && <p className="mt-3 text-[12px] text-muted">Re-transcribe needs the reference's audio path, which this worker version does not attach to voice references. Edit the transcript by hand instead.</p>}
+      {!refs.some((r) => referenceAudioPath(r)) && refs.length > 0 && <p className="mt-3 text-[12px] text-muted">Re-transcribe is unavailable: the source recordings of these references are no longer in the library. Edit the transcript by hand instead.</p>}
 
       <Dialog
         open={!!editing}

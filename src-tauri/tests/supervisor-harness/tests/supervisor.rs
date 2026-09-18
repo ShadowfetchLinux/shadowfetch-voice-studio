@@ -303,6 +303,98 @@ async fn manual_restart_replaces_the_process() {
     sup.shutdown().await;
 }
 
+/// A "python" wrapper that makes the fake worker print `ready` only after `delay_s`.
+fn slow_python(fx: &Fixture, delay_s: f64) -> PathBuf {
+    let wrapper = fx.root.join("slow-python.sh");
+    std::fs::write(
+        &wrapper,
+        format!("#!/bin/sh\nFAKE_WORKER_READY_DELAY={delay_s} exec /usr/bin/python3 \"$@\"\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(
+        &wrapper,
+        std::os::unix::fs::PermissionsExt::from_mode(0o755),
+    )
+    .unwrap();
+    wrapper
+}
+
+fn slow_supervisor(fx: &Fixture, delay_s: f64, cfg: SupervisorConfig) -> Supervisor {
+    let backend = fx.root.join("backend");
+    let python = slow_python(fx, delay_s);
+    let sup = Supervisor::with_locator(
+        fx.recorder.clone(),
+        tokio::runtime::Handle::current(),
+        fx.paths.clone(),
+        Box::new(move |_| location(&python, &backend)),
+        cfg,
+    );
+    sup.start();
+    sup
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn requests_wait_for_a_starting_worker() {
+    let fx = fixture("starting");
+    let sup = slow_supervisor(&fx, 1.0, fast_config());
+    // The UI boots long before python is ready: the request must wait, not fail.
+    assert!(!sup.status().running);
+    let started = Instant::now();
+    let r = sup.request(id(), "system.ping", json!({})).await.unwrap();
+    assert_eq!(r["ok"], json!(true));
+    assert!(
+        started.elapsed() >= Duration::from_millis(900),
+        "did not wait for ready"
+    );
+    let pid1 = sup.status().pid.expect("pid");
+
+    // Same for the window right after "Restart worker": the request goes to the new process.
+    sup.restart();
+    assert!(
+        !sup.status().running,
+        "restart() marks the worker down at once"
+    );
+    let r = sup.request(id(), "system.ping", json!({})).await.unwrap();
+    assert_eq!(r["ok"], json!(true));
+    let s = sup.status();
+    assert!(s.running && s.pid != Some(pid1) && s.restarts == 1, "{s:?}");
+    assert!(!pid_alive(pid1));
+    sup.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn waiting_requests_fail_once_the_worker_stays_down() {
+    let fx = fixture("never-ready");
+    let cfg = SupervisorConfig {
+        ready_timeout: Duration::from_secs(1),
+        max_restarts: 1,
+        ..fast_config()
+    };
+    // Ready takes longer than the supervisor tolerates: every attempt is killed.
+    let sup = slow_supervisor(&fx, 5.0, cfg);
+    let started = Instant::now();
+    let e = sup
+        .request(id(), "system.ping", json!({}))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, codes::WORKER_DOWN);
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "waited past ready_timeout"
+    );
+    wait_until("give up", Duration::from_secs(10), || sup.status().stopped).await;
+    // Once stopped a request fails immediately.
+    let started = Instant::now();
+    let e = sup
+        .request(id(), "system.ping", json!({}))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, codes::WORKER_DOWN);
+    assert_eq!(e.details["stopped"], json!(true));
+    assert!(started.elapsed() < Duration::from_millis(200));
+    sup.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn gives_up_after_a_crash_loop_until_restarted() {
     let fx = fixture("loop");

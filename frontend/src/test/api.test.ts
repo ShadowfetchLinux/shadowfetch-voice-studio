@@ -147,4 +147,25 @@ describe("api client (Tauri transport)", () => {
     await api.system.ping().catch(() => undefined); // ensures the transport is selected
     expect(api.shell.fileSrc("/data/x.wav")).toBe("asset://localhost/%2Fdata%2Fx.wav");
   });
+
+  it("runtimeBootstrap forwards its options as the Rust command's camelCase arguments and surfaces a rejection", async () => {
+    const { api, WorkerError } = await loadApi();
+    invoke.mockResolvedValue(0);
+    await expect(api.shell.runtimeBootstrap({ withChatterbox: true, autoInstallUv: true })).resolves.toBe(0);
+    expect(invoke).toHaveBeenCalledWith("runtime_bootstrap", { withChatterbox: true, autoInstallUv: true });
+    await api.shell.runtimeBootstrap();
+    expect(invoke).toHaveBeenLastCalledWith("runtime_bootstrap", {});
+    invoke.mockRejectedValue({ code: "INTERNAL", message: "bootstrap.sh exited with code 1", details: { code: 1 }, recoverable: true });
+    const err = await api.shell.runtimeBootstrap({ withChatterbox: false }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(WorkerError);
+    expect((err as InstanceType<typeof WorkerError>).code).toBe("INTERNAL");
+  });
+
+  it("projects.list keeps an explicit archived:null so the worker lists active and archived projects", async () => {
+    const { api } = await loadApi();
+    invoke.mockResolvedValue({ projects: [] });
+    await api.projects.list({ sort: "updated", archived: null });
+    const args = invoke.mock.calls.at(-1)![1] as { params: Record<string, unknown> };
+    expect(JSON.parse(JSON.stringify(args.params))).toEqual({ sort: "updated", archived: null });
+  });
 });

@@ -179,6 +179,22 @@ function settleSegments(segments: SegmentView[], failedIndex: number | null, fai
 let settingsTimer: number | null = null;
 let settingsVersion = 0;
 
+/**
+ * Post-processing values worth persisting: only ids an engine actually declares in `Capabilities.post_processing`.
+ * No adapter declares any today and nothing in the worker reads `settings.post_processing`, so the key is left out
+ * entirely rather than storing values the master/export would silently ignore.
+ */
+export function declaredPostProcessing(postProcessing: Record<string, Record<string, unknown>>): Record<string, Record<string, unknown>> | null {
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [engineId, values] of Object.entries(postProcessing)) {
+    const declared = capsFor(engineId)?.post_processing ?? [];
+    const kept: Record<string, unknown> = {};
+    for (const spec of declared) if (spec.id in values) kept[spec.id] = values[spec.id];
+    if (Object.keys(kept).length) out[engineId] = kept;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 // ---------------------------------------------------------------------------
 // store
 // ---------------------------------------------------------------------------
@@ -193,7 +209,8 @@ export const useCreateStore = create<CreateState>((set, get) => {
       settingsTimer = null;
       if (version !== settingsVersion || get().projectId !== id) return;
       const { plan, controls, postProcessing, seed } = get();
-      void api.projects.update({ id, patch: { settings: { plan, controls, post_processing: postProcessing, seed } } }).catch((err) => {
+      const post = declaredPostProcessing(postProcessing);
+      void api.projects.update({ id, patch: { settings: { plan, controls, seed, ...(post ? { post_processing: post } : {}) } } }).catch((err) => {
         console.warn("could not persist project settings", err);
       });
     }, SETTINGS_DEBOUNCE_MS);

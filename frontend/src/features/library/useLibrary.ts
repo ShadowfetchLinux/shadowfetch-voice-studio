@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { Project, ProjectsListResult } from "@/lib/protocol";
 import { WorkerError } from "@/lib/protocol";
-import { defaultFilters, folderNames, mergeResults, tagNames, toListParams, type LibraryFilters, type ProjectRow } from "./filtering";
+import { defaultFilters, folderNames, mergeResults, tagNames, toListParams, toSearchParams, type LibraryFilters, type ProjectRow } from "./filtering";
 
 export interface Library {
   filters: LibraryFilters;
@@ -36,7 +36,8 @@ export function useLibrary(): Library {
     try {
       // `folder` is not in the PROTOCOL params type, so the untyped request is used for the list call.
       const listP = api.requestRaw<ProjectsListResult>("projects.list", toListParams(f));
-      const searchP = f.query.trim() ? api.library.search(f.query.trim()).then((r) => r.projects as Project[]).catch(() => [] as Project[]) : Promise.resolve([] as Project[]);
+      const search = toSearchParams(f);
+      const searchP = search ? api.library.search(search).then((r) => r.projects as Project[]).catch(() => [] as Project[]) : Promise.resolve([] as Project[]);
       const [listed, searched] = await Promise.all([listP, searchP]);
       if (gen !== generation.current) return;
       setProjects(mergeResults(listed.projects as ProjectRow[], searched as ProjectRow[], f));

@@ -79,6 +79,42 @@ export function handleError(err: unknown, title = "Something went wrong"): Worke
   return we;
 }
 
+type Set = (partial: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
+type Get = () => AppState;
+
+let bootInFlight: Promise<void> | null = null;
+
+/**
+ * Load everything the UI needs from the worker. No worker request is sent until the supervisor reports
+ * `running` — while the worker is still starting the shell shows "Starting local worker…" and the
+ * `worker://status` subscription (App.tsx) calls `boot()` again once it is up (also after a restart).
+ */
+async function runBoot(set: Set, get: Get): Promise<void> {
+  try {
+    const snapshot = await api.shell.workerStatus().catch(() => null);
+    // A `worker://status` event that arrived while the snapshot was in flight is newer than the snapshot
+    // (the subscription is registered before the first boot), so it wins; otherwise adopt the snapshot.
+    const status = get().workerStatus ?? snapshot;
+    if (snapshot && !get().workerStatus) set({ workerStatus: snapshot });
+    if (status && !status.running) {
+      // Gave up (crash loop, no interpreter): say so and offer a restart. Otherwise wait for the status event.
+      if (status.stopped) set({ booted: true, bootError: status.last_error ?? "The local worker is not running." });
+      else set({ booted: false, bootError: null });
+      return;
+    }
+    const firstBoot = get().settings == null;
+    const settings = await get().loadSettings();
+    // First run → guided setup (only on the initial boot, never when the worker comes back after a restart).
+    if (firstBoot && settings && !settings.onboarding_done) set({ page: "setup", params: {} });
+    set({ booted: true, bootError: null });
+    // Everything else loads in the background; the new worker process has fresh engine/model state.
+    void Promise.all([get().loadDiagnostics(), get().loadEngines(), get().loadModels(), get().refreshGpu()]);
+  } catch (err) {
+    const we = WorkerError.from(err);
+    set({ booted: true, bootError: we.message });
+  }
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   page: "home",
   params: {},
@@ -101,19 +137,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   engineStates: {},
   modelStates: {},
 
-  async boot() {
-    try {
-      const status = await api.shell.workerStatus().catch(() => null);
-      if (status) set({ workerStatus: status });
-      const settings = await get().loadSettings();
-      // First run → guided setup. Everything else loads in the background.
-      if (settings && !settings.onboarding_done) set({ page: "setup", params: {} });
-      set({ booted: true, bootError: null });
-      void Promise.all([get().loadDiagnostics(), get().loadEngines(), get().loadModels(), get().refreshGpu()]);
-    } catch (err) {
-      const we = WorkerError.from(err);
-      set({ booted: true, bootError: we.message });
+  boot() {
+    // One boot at a time: the status subscription and the initial call can both ask for it.
+    if (!bootInFlight) {
+      bootInFlight = runBoot(set, get).finally(() => {
+        bootInFlight = null;
+      });
     }
+    return bootInFlight;
   },
 
   async loadDiagnostics() {

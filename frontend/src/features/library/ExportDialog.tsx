@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, FolderOpen } from "lucide-react";
 import { api } from "@/lib/api";
-import type { ExportFormat, ExportRenderParams, ExportRenderResult, LoudnessTarget, LoudnessTargetId, Progress, Project } from "@/lib/protocol";
+import type { ExportFormat, ExportRenderParams, ExportRenderResult, LoudnessTarget, Progress, Project } from "@/lib/protocol";
 import { WorkerError } from "@/lib/protocol";
 import { formatBytes, formatDuration } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
@@ -79,7 +79,7 @@ export function ExportDialog({ project, onClose, onExported }: ExportDialogProps
         if (mp3Mode === "cbr") params.mp3_bitrate_kbps = Number(bitrate) as 128 | 192 | 256 | 320;
         else params.mp3_vbr_quality = Number(vbr);
       }
-      if (target) params.loudness = { target_id: target.id as LoudnessTargetId };
+      if (target) params.loudness = { target_id: target.id };
       setProgress(null);
       const r = await api.export.render(params, { onProgress: setProgress });
       setResult(r);

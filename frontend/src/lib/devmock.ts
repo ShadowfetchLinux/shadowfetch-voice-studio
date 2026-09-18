@@ -14,6 +14,7 @@ import type {
   ModelInfo,
   Progress,
   Project,
+  RuntimeStatus,
   Settings,
   StorageUsage,
   WorkerErrorShape,
@@ -386,13 +387,29 @@ export function createMockTransport(): Transport {
         case "app_paths":
           return { data: "/mock/data", config: "/mock/config", cache: "/mock/cache", models: "/mock/data/models", logs: "/mock/data/logs" } as T;
         case "runtime_status":
-          return { envs: { main: { installed: true }, chatterbox: { installed: false } }, bootstrapping: false } as T;
-        case "runtime_bootstrap":
+          return {
+            python: "/mock/data/runtime/main/bin/python",
+            pythonpath: "/mock/backend",
+            mode: "managed",
+            found: true,
+            python_found: true,
+            package_found: true,
+            source: "managed",
+            runtime_root: "/mock/data/runtime",
+            bootstrap_script: "/mock/scripts/bootstrap.sh",
+            bootstrap_script_found: true,
+            bootstrap_running: false,
+          } satisfies RuntimeStatus as T;
+        case "runtime_bootstrap": {
+          const withCb = args.withChatterbox === true;
+          emit("runtime://log", { stream: "system", line: `$ bash /mock/scripts/bootstrap.sh --runtime-dir /mock/data/runtime ${withCb ? "--with-chatterbox" : "--without-chatterbox"}` });
           for (const line of ["[mock] creating virtual environment…", "[mock] installing torch (skipped in preview)", "[mock] done — nothing was installed"]) {
             await delay(300);
-            emit("runtime://log", { line });
+            emit("runtime://log", { stream: "stdout", line });
           }
-          return { ok: true } as T;
+          emit("runtime://log", { stream: "system", line: "bootstrap exited with code 0" });
+          return 0 as T;
+        }
         case "pick_audio_files":
           return [] as T;
         case "pick_text_file":

@@ -10,7 +10,7 @@ const h = vi.hoisted(async () => {
 });
 vi.mock("@/lib/api", async () => (await h).mod);
 
-import { defaultFilters, matchesFilters, mergeResults, normalizeProjectDetail, sortProjects, toListParams } from "@/features/library/filtering";
+import { defaultFilters, matchesFilters, mergeResults, normalizeProjectDetail, sortProjects, toListParams, toSearchParams } from "@/features/library/filtering";
 import LibraryPage from "@/pages/LibraryPage";
 import { useAppStore } from "@/store/appStore";
 
@@ -24,7 +24,16 @@ describe("library filtering (pure)", () => {
   it("maps filters to projects.list params", () => {
     expect(toListParams(defaultFilters)).toEqual({ sort: "updated", archived: false });
     expect(toListParams({ query: " fox ", tags: ["a"], favoritesOnly: true, archived: "archived", folder: "Books", sort: "name" })).toEqual({ query: "fox", tags: ["a"], favorite: true, archived: true, folder: "Books", sort: "name" });
-    expect(toListParams({ ...defaultFilters, archived: "all" })).toEqual({ sort: "updated", archived: undefined });
+    // "Active + archived" must send an explicit null: a missing key means "active only" to the worker.
+    expect(toListParams({ ...defaultFilters, archived: "all" })).toEqual({ sort: "updated", archived: null });
+    expect(Object.keys(JSON.parse(JSON.stringify(toListParams({ ...defaultFilters, archived: "all" }))))).toContain("archived");
+  });
+
+  it("asks library.search for archived script hits only when the filter includes them", () => {
+    expect(toSearchParams(defaultFilters)).toBeNull();
+    expect(toSearchParams({ ...defaultFilters, query: " fox " })).toEqual({ query: "fox" });
+    expect(toSearchParams({ ...defaultFilters, query: "fox", archived: "all" })).toEqual({ query: "fox", include_archived: true });
+    expect(toSearchParams({ ...defaultFilters, query: "fox", archived: "archived" })).toEqual({ query: "fox", include_archived: true });
   });
 
   it("re-applies non-query filters to full-text hits and merges without duplicates", () => {
@@ -44,14 +53,15 @@ describe("library filtering (pure)", () => {
     expect(sortProjects([P2, P3, P1], "name").map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
   });
 
-  it("accepts both projects.get shapes", () => {
-    const wrapped = normalizeProjectDetail({ project: P1, script: { text: "hi", version: 2 }, segments: [], exports: [{ id: "e1", project_id: "p1", path: "/x.wav", format: "wav", created_at: "" }] });
-    expect(wrapped.id).toBe("p1");
-    expect(wrapped.exports).toHaveLength(1);
-    expect(wrapped.script?.text).toBe("hi");
-    const flat = normalizeProjectDetail({ ...P2, segments: [], exports: [] });
-    expect(flat.name).toBe("Beta chapter");
-    expect(flat.exports).toEqual([]);
+  it("normalises the projects.get shape {project, script, segments, exports}", () => {
+    const d = normalizeProjectDetail({ project: P1, script: { text: "hi", version: 2 }, segments: [], exports: [{ id: "e1", project_id: "p1", path: "/x.wav", format: "wav", created_at: "" }] });
+    expect(d.project.id).toBe("p1");
+    expect(d.exports).toHaveLength(1);
+    expect(d.script?.text).toBe("hi");
+    const bare = normalizeProjectDetail({ project: P2, script: null } as unknown as Parameters<typeof normalizeProjectDetail>[0]);
+    expect(bare.project.name).toBe("Beta chapter");
+    expect(bare.segments).toEqual([]);
+    expect(bare.exports).toEqual([]);
   });
 });
 
@@ -97,11 +107,15 @@ describe("<LibraryPage /> with a mocked worker", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "Archived filter" }), "archived");
     await waitFor(() => expect(mod.api.requestRaw).toHaveBeenCalledWith("projects.list", { sort: "updated", archived: true }));
     await waitFor(() => expect(screen.getByText("Gamma archived")).toBeInTheDocument());
+    // "Active + archived" sends an explicit null (the worker treats a missing key as "active only")
+    await user.selectOptions(screen.getByRole("combobox", { name: "Archived filter" }), "all");
+    await waitFor(() => expect(mod.api.requestRaw).toHaveBeenCalledWith("projects.list", { sort: "updated", archived: null }));
+    await waitFor(() => expect(within(screen.getByRole("list", { name: "Projects" })).getAllByRole("listitem")).toHaveLength(3));
     await user.selectOptions(screen.getByRole("combobox", { name: "Archived filter" }), "active");
 
     await user.type(screen.getByLabelText("Search projects"), "alpha");
     await waitFor(() => expect(mod.api.requestRaw).toHaveBeenCalledWith("projects.list", { sort: "updated", archived: false, query: "alpha" }));
-    await waitFor(() => expect(mod.api.library.search).toHaveBeenCalledWith("alpha"));
+    await waitFor(() => expect(mod.api.library.search).toHaveBeenCalledWith({ query: "alpha" }));
     // the full-text hit (P2, matched in its script) is merged in and still honours the filters
     await waitFor(() => expect(within(screen.getByRole("list", { name: "Projects" })).getAllByRole("listitem")).toHaveLength(2));
 
@@ -111,6 +125,17 @@ describe("<LibraryPage /> with a mocked worker", () => {
     await waitFor(() => expect(mod.api.projects.get).toHaveBeenCalledWith("p1"));
     expect(await screen.findByRole("group", { name: "Playback" })).toBeInTheDocument();
     expect(await screen.findByText(/-16.2 LUFS/)).toBeInTheDocument();
+  });
+
+  it("includes archived script-text hits in the search when the filter shows archived projects", async () => {
+    const { mod } = await h;
+    const user = userEvent.setup();
+    render(<LibraryPage />);
+    await screen.findByRole("list", { name: "Projects" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Archived filter" }), "all");
+    await user.type(screen.getByLabelText("Search projects"), "fox");
+    await waitFor(() => expect(mod.api.library.search).toHaveBeenCalledWith({ query: "fox", include_archived: true }));
+    expect(mod.api.requestRaw).toHaveBeenCalledWith("projects.list", { sort: "updated", archived: null, query: "fox" });
   });
 
   it("shows an honest empty state when nothing matches", async () => {

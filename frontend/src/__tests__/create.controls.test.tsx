@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
+import { api } from "@/lib/api";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("@/lib/api", () => ({
@@ -21,7 +22,7 @@ vi.mock("@/lib/api", () => ({
 import type { ControlSpec } from "@/lib/protocol";
 import { useAppStore } from "@/store/appStore";
 import { EnginePanel } from "@/features/create/components/EnginePanel";
-import { __resetCreateStore, useCreateStore } from "@/features/create/createStore";
+import { __resetCreateStore, declaredPostProcessing, useCreateStore } from "@/features/create/createStore";
 import { makeCaps, makeEngine } from "@/features/create/testing/fixtures";
 
 const CONTROLS: ControlSpec[] = [
@@ -95,6 +96,41 @@ describe("capability-driven controls", () => {
     expect(screen.getByText("Post-processing")).toBeInTheDocument();
     expect(screen.getByRole("slider", { name: "Speed (post-processing)" })).toHaveValue("1");
     expect(screen.queryByLabelText(/Seed/)).not.toBeInTheDocument();
+  });
+
+  it("persists post-processing values only for engines that declare such controls", async () => {
+    const speed: ControlSpec = { id: "speed", label: "Speed (post-processing)", type: "float", min: 0.8, max: 1.25, step: 0.01, default: 1 };
+    const plain = makeCaps({ id: "plain-engine", post_processing: [] });
+    const withPost = makeCaps({ id: "post-engine", post_processing: [speed] });
+    useAppStore.setState({ engines: [makeEngine(plain), makeEngine(withPost)], engineStates: {} });
+    // pure helper: undeclared ids (or engines without post-processing at all) are dropped; nothing → null
+    expect(declaredPostProcessing({})).toBeNull();
+    expect(declaredPostProcessing({ "plain-engine": { speed: 1.1 } })).toBeNull();
+    expect(declaredPostProcessing({ "post-engine": { speed: 1.1, bogus: 3 }, "plain-engine": { speed: 0.9 } })).toEqual({ "post-engine": { speed: 1.1 } });
+
+    // through the store: the debounced projects.update carries no post_processing key for an engine without controls
+    vi.useFakeTimers();
+    try {
+      useCreateStore.setState({ projectId: "proj_test1", engineId: "plain-engine", postProcessing: { "plain-engine": { speed: 1.1 } } });
+      useCreateStore.getState().setSeed(7);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      const update = vi.mocked(api.projects.update);
+      expect(update).toHaveBeenCalledTimes(1);
+      const settings = update.mock.calls[0]![0].patch.settings as Record<string, unknown>;
+      expect(settings).not.toHaveProperty("post_processing");
+      expect(settings).toMatchObject({ seed: 7, controls: {} });
+
+      useCreateStore.getState().setPostProcessing("post-engine", "speed", 1.2);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(update).toHaveBeenCalledTimes(2);
+      expect((update.mock.calls[1]![0].patch.settings as Record<string, unknown>).post_processing).toEqual({ "post-engine": { speed: 1.2 } });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("offers the seed input with the environment caveat when the engine supports seeds", () => {

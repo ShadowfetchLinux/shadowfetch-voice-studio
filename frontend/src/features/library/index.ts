@@ -1,4 +1,4 @@
-export { defaultFilters, toListParams, matchesFilters, sortProjects, mergeResults, normalizeProjectDetail, folderNames, tagNames } from "./filtering";
+export { defaultFilters, toListParams, toSearchParams, matchesFilters, sortProjects, mergeResults, normalizeProjectDetail, folderNames, tagNames } from "./filtering";
 export type { LibraryFilters, ArchivedFilter, ProjectRow, ListParams } from "./filtering";
 export { useLibrary } from "./useLibrary";
 export type { Library } from "./useLibrary";

@@ -71,7 +71,8 @@ export function SaveStep({ mode, source, selection, transcript, processing, engi
         warnings = r.warnings ?? [];
         toast.success("Voice saved", `${voice.name} · reference ${(selection.end - selection.start).toFixed(1)} s`);
       } else {
-        const params: AddReferenceParams & typeof extra & { select: boolean; label: string | null; processing: unknown[] } = { voice_id: mode.voice.id, select: setActive, label: name.trim() || null, processing: steps, ...common, ...extra };
+        // `engine_id` makes the worker check the trim against that engine's reference limits, as voices.create does.
+        const params: AddReferenceParams & typeof extra & { select: boolean; label: string | null; processing: unknown[] } = { voice_id: mode.voice.id, select: setActive, label: name.trim() || null, processing: steps, ...(engineId ? { engine_id: engineId } : {}), ...common, ...extra };
         const ref = (await api.voices.addReference(params)) as Reference;
         voice = await api.voices.get(mode.voice.id);
         referenceId = ref.id;

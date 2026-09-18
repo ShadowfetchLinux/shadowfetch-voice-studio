@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, CheckCircle2, Circle, FlaskConical, RefreshCw, TerminalSquare, XCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import type { CudaSmokeResult } from "@/lib/protocol";
+import { WorkerError } from "@/lib/protocol";
 import { cx, formatBytes } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -147,13 +148,19 @@ function EnvStep() {
     setRunning(true);
     setLog([]);
     try {
-      await api.shell.runtimeBootstrap();
-      toast.success("Environment setup finished");
+      // The shell runs scripts/bootstrap.sh without a tty: say explicitly whether the optional Chatterbox
+      // environment is wanted (the script would otherwise skip it) and allow it to fetch `uv` when missing.
+      // A non-zero exit rejects with a WorkerError; a resolved value is the exit code (0).
+      const code = await api.shell.runtimeBootstrap({ withChatterbox: !chatterbox?.installed, autoInstallUv: true });
+      if (code !== 0) throw new WorkerError({ code: "INTERNAL", message: `The bootstrap script exited with code ${code}.`, details: { code }, recoverable: true }, "runtime_bootstrap");
+      toast.success("Environment setup finished", "The worker restarts with the new environments; re-checking…");
+      // The worker is restarted by the shell after a successful bootstrap; the fresh process reports the real state.
+      await Promise.all([loadDiagnostics(), loadEngines()]);
     } catch (err) {
       handleError(err, "Environment setup failed");
+      await Promise.all([loadDiagnostics(), loadEngines()]);
     } finally {
       setRunning(false);
-      await Promise.all([loadDiagnostics(), loadEngines()]);
     }
   };
 

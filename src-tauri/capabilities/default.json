@@ -1,14 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Least-privilege capability for the main window. No shell, fs or http plugins: every file the UI touches goes through a typed Rust command that re-validates the path.",
+  "description": "Least-privilege capability for the main window. No shell, fs, http, dialog or opener plugin commands: every file the UI touches goes through a typed Rust command that re-validates the path (the Rust side calls the dialog/opener plugins directly, which needs no ACL entry).",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "core:event:default",
     "core:path:default",
-    "core:window:default",
-    "dialog:default",
-    "opener:default"
+    "core:window:default"
   ]
 }

@@ -5,7 +5,7 @@
  * `library.search` additionally matches the latest script text, so when a query is present both are
  * combined client-side and re-filtered so every row still honours the active filters.
  */
-import type { Project, ProjectDetail, ProjectSort, ProjectsListParams } from "@/lib/protocol";
+import type { LibrarySearchParams, Project, ProjectDetail, ProjectSort, ProjectsListParams } from "@/lib/protocol";
 
 export type ArchivedFilter = "active" | "archived" | "all";
 
@@ -20,14 +20,8 @@ export interface LibraryFilters {
 
 export const defaultFilters: LibraryFilters = { query: "", tags: [], favoritesOnly: false, archived: "active", folder: null, sort: "updated" };
 
-/** Project summary rows as `projects.list` really returns them (extra fields beyond PROTOCOL's Project). */
-export type ProjectRow = Project & {
-  script_excerpt?: string;
-  script_version?: number;
-  segment_count?: number;
-  generated_count?: number;
-  has_master?: boolean;
-};
+/** Project summary rows as `projects.list` returns them (`Project` already carries the summary fields). */
+export type ProjectRow = Project;
 
 /** Parameters for `projects.list`. `folder` is accepted by the worker but missing from the PROTOCOL params type. */
 export type ListParams = ProjectsListParams & { folder?: string };
@@ -38,9 +32,18 @@ export function toListParams(f: LibraryFilters): ListParams {
   if (q) p.query = q;
   if (f.tags.length) p.tags = f.tags;
   if (f.favoritesOnly) p.favorite = true;
-  p.archived = f.archived === "all" ? undefined : f.archived === "archived";
+  // An explicit JSON null is the only way to ask the worker for both: `undefined` keys are dropped by
+  // JSON.stringify in `invoke`, and a missing key means "active only" (ProjectList.archived defaults to False).
+  p.archived = f.archived === "all" ? null : f.archived === "archived";
   if (f.folder != null) p.folder = f.folder;
   return p;
+}
+
+/** Parameters for `library.search`; archived script-text hits are only returned when asked for. */
+export function toSearchParams(f: LibraryFilters): LibrarySearchParams | null {
+  const q = f.query.trim();
+  if (!q) return null;
+  return f.archived === "active" ? { query: q } : { query: q, include_archived: true };
 }
 
 /** True when a project satisfies every non-query filter (used to re-check `library.search` hits). */
@@ -69,15 +72,9 @@ export function mergeResults<T extends Project>(listed: T[], searched: T[], f: L
   return sortProjects([...byId.values()], f.sort);
 }
 
-/** `projects.get` returns `{project, script, segments, exports}`; PROTOCOL types it flat. Accept both. */
-export function normalizeProjectDetail(raw: unknown): ProjectDetail {
-  const r = (raw ?? {}) as Record<string, unknown>;
-  if (r.project && typeof r.project === "object") {
-    const p = r.project as Project;
-    return { ...p, script: (r.script as ProjectDetail["script"]) ?? null, segments: (r.segments as ProjectDetail["segments"]) ?? [], exports: (r.exports as ProjectDetail["exports"]) ?? [] };
-  }
-  const p = r as unknown as ProjectDetail;
-  return { ...p, segments: p.segments ?? [], exports: p.exports ?? [] };
+/** `projects.get` returns `{project, script, segments, exports}`; fill in the optional collections defensively. */
+export function normalizeProjectDetail(raw: ProjectDetail): ProjectDetail {
+  return { project: raw.project, script: raw.script ?? null, segments: raw.segments ?? [], exports: raw.exports ?? [] };
 }
 
 /** Folder names from `library.folders` (the worker returns `{name,count}` objects; PROTOCOL also allows strings). */

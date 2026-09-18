@@ -14,6 +14,7 @@ import type {
   ParamsOf,
   Progress,
   ResultOf,
+  RuntimeBootstrapArgs,
   RuntimeLogLine,
   RuntimeStatus,
   ShellCommandName,
@@ -413,7 +414,7 @@ export const api = {
   },
 
   library: {
-    search: (query: string, o?: Opts) => request("library.search", { query }, o),
+    search: (p: ParamsOf<"library.search">, o?: Opts) => request("library.search", p, o),
     folders: (o?: Opts) => request("library.folders", none, o),
     tags: (o?: Opts) => request("library.tags", none, o),
   },
@@ -443,7 +444,11 @@ export const api = {
     workerRestart: (): Promise<void> => shell("worker_restart"),
     appPaths: (): Promise<AppPathsInfo> => shell("app_paths"),
     runtimeStatus: (): Promise<RuntimeStatus> => shell("runtime_status"),
-    runtimeBootstrap: (): Promise<unknown> => shell("runtime_bootstrap"),
+    /**
+     * Run scripts/bootstrap.sh through the shell. Resolves with the exit code (0); the Rust command rejects
+     * with a `WorkerError` on a non-zero exit, when a bootstrap is already running (`BUSY`) or when the script is missing.
+     */
+    runtimeBootstrap: (opts: RuntimeBootstrapArgs = {}): Promise<number> => shell("runtime_bootstrap", opts),
     pickAudioFiles: (): Promise<string[]> => shell("pick_audio_files").then((r) => r ?? []),
     pickTextFile: (): Promise<string | null> => shell("pick_text_file"),
     pickSavePath: (defaultName: string, ext: string): Promise<string | null> => shell("pick_save_path", { defaultName, ext }),

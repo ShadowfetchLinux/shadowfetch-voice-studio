@@ -90,11 +90,21 @@ export interface Progress {
 }
 
 /** `worker://status` payload from the Rust supervisor. */
+/** Supervisor snapshot; also the payload of `worker://status` (src-tauri/src/worker.rs `WorkerStatus`). */
 export interface WorkerStatus {
+  /** A worker process is up and answered `ready`. */
   running: boolean;
   restarts: number;
   last_error: string | null;
+  /** The supervisor gave up (crash loop, no interpreter, shutdown); needs `worker_restart` or a successful bootstrap. */
   stopped: boolean;
+  pid?: number | null;
+  started_at_unix_ms?: number | null;
+  pending?: number;
+  python?: string;
+  pythonpath?: string;
+  mode?: string;
+  python_found?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -464,6 +474,13 @@ export interface RecordStopResult {
   asset_id?: string;
 }
 
+/** `record.pause` / `record.resume` only report the new session state (record/session.py). */
+export interface RecordPauseResult {
+  session_id: string;
+  state: "paused" | "recording";
+  elapsed_s: number;
+}
+
 export interface RecordScript {
   id: string;
   title: string;
@@ -784,9 +801,12 @@ export interface Reference {
   /** engine_id → derived file that matches that engine's requirements */
   derived?: Record<string, DerivedReference>;
   created_at: string;
-  /** Some handlers attach the underlying asset for convenience. */
-  asset?: Asset;
+  /** Source asset summary attached by `voices.*` (repo.reference_dict); null when the asset row is gone. */
+  asset?: AssetSummary | null;
 }
+
+/** The subset of `Asset` the worker joins onto voice references (`repo.ASSET_SUMMARY_SQL`). */
+export type AssetSummary = Pick<Asset, "id" | "kind" | "source" | "original_name" | "original_path" | "working_path" | "duration_s" | "sample_rate" | "channels" | "created_at">;
 
 export interface Asset {
   id: string;
@@ -855,6 +875,8 @@ export interface AddReferenceParams {
   asset_id: string;
   trim: Trim;
   transcript: string;
+  /** Validates the trim against that engine's reference limits (as `voices.create` does). */
+  engine_id?: string;
 }
 
 export interface SelectReferenceParams {
@@ -883,14 +905,16 @@ export interface Segment {
   id: string;
   project_id: string;
   plan_version: number;
-  idx: number;
+  /** Position in the plan (the DB column is `idx`; `repo.segment_dict` renames it). */
+  index: number;
   paragraph: number;
   text: string;
   normalized_text: string;
   substitutions: Substitution[];
+  char_count: number;
   selected_take_id?: string | null;
   created_at?: string;
-  takes?: Take[];
+  takes: Take[];
 }
 
 export interface ExportRecord {
@@ -930,27 +954,29 @@ export interface Project {
   notes?: string | null;
   created_at: string;
   updated_at: string;
-  /** Present on list results from some handlers. */
+  /** Present on `projects.list` / `projects.get` rows (jobs/projects.py `_summary` / `project_view`). */
   voice_name?: string | null;
-  script_preview?: string | null;
-}
-
-export interface ScriptVersion {
-  version: number;
-  text: string;
-  created_at?: string;
-}
-
-/** `projects.get` includes script, segments (with takes) and exports. */
-export interface ProjectDetail extends Project {
-  script?: ScriptVersion | null;
-  script_text?: string;
+  /** Summary fields of `projects.list` rows only. */
+  script_excerpt?: string;
   script_version?: number;
+  segment_count?: number;
+  generated_count?: number;
+  has_master?: boolean;
+}
+
+/** Latest script as `projects.get` returns it (`updated_at` is the version's creation time). */
+export interface ScriptVersion {
+  text: string;
+  version: number;
+  updated_at?: string;
+}
+
+/** `projects.get` → `{project, script, segments (current plan, with takes), exports}` (jobs/projects.py `project_view`). */
+export interface ProjectDetail {
+  project: Project;
+  script: ScriptVersion | null;
   segments: Segment[];
-  takes?: Take[];
   exports: ExportRecord[];
-  voice?: Voice | null;
-  reference?: Reference | null;
 }
 
 export interface ProjectCreateParams {
@@ -967,7 +993,8 @@ export interface ProjectsListParams {
   query?: string;
   tags?: string[];
   favorite?: boolean;
-  archived?: boolean;
+  /** `false` (worker default) = active only, `true` = archived only, explicit `null` = both. */
+  archived?: boolean | null;
   sort?: ProjectSort;
   limit?: number;
 }
@@ -1006,6 +1033,13 @@ export interface SelectTakeParams {
   take_id: string;
 }
 
+export interface LibrarySearchParams {
+  query: string;
+  /** The worker excludes archived projects unless this is true. */
+  include_archived?: boolean;
+  limit?: number;
+}
+
 export interface LibrarySearchResult {
   projects: Project[];
   voices: Voice[];
@@ -1038,7 +1072,8 @@ export interface BackupImportResult {
 // ---------------------------------------------------------------------------
 
 export type ExportFormat = "wav" | "flac" | "mp3";
-export type LoudnessTargetId = "ebu-r128-podcast-16" | "streaming-14" | "broadcast-23";
+/** Ids of `export.loudness_targets` (audio/export.py LOUDNESS_TARGETS). */
+export type LoudnessTargetId = "podcast-16" | "streaming-14" | "broadcast-r128-23";
 
 export interface ExportRenderParams {
   project_id: string;
@@ -1068,7 +1103,7 @@ export interface ExportRenderResult {
 }
 
 export interface LoudnessTarget {
-  id: LoudnessTargetId | string;
+  id: LoudnessTargetId;
   label: string;
   integrated_lufs: number;
   true_peak_dbtp: number;
@@ -1170,8 +1205,8 @@ export interface Methods {
 
   "record.devices": { params: Record<string, never>; result: RecordDevicesResult };
   "record.start": { params: RecordStartParams; result: RecordStartResult };
-  "record.pause": { params: RecordSessionParams; result: RecordStopResult };
-  "record.resume": { params: RecordSessionParams; result: RecordStopResult };
+  "record.pause": { params: RecordSessionParams; result: RecordPauseResult };
+  "record.resume": { params: RecordSessionParams; result: RecordPauseResult };
   "record.stop": { params: RecordSessionParams; result: RecordStopResult };
   "record.discard": { params: RecordSessionParams; result: { ok: boolean } };
   "record.scripts": { params: Record<string, never>; result: { scripts: RecordScript[] } };
@@ -1209,7 +1244,7 @@ export interface Methods {
   "projects.save_script": { params: SaveScriptParams; result: SaveScriptResult };
   "projects.select_take": { params: SelectTakeParams; result: { ok: boolean } };
 
-  "library.search": { params: { query: string }; result: LibrarySearchResult };
+  "library.search": { params: LibrarySearchParams; result: LibrarySearchResult };
   "library.folders": { params: Record<string, never>; result: LibraryFoldersResult };
   "library.tags": { params: Record<string, never>; result: LibraryTagsResult };
 
@@ -1244,16 +1279,33 @@ export interface AppPathsInfo {
   [key: string]: string | undefined;
 }
 
-/** `runtime_status()` — shape owned by the Rust shell; only `envs` is relied upon here. */
+/** `runtime_status()` — mirrors the Rust `RuntimeStatus` struct (src-tauri/src/commands.rs). */
 export interface RuntimeStatus {
-  envs?: Record<string, { installed: boolean; python?: string | null; error?: string | null }>;
-  bootstrapping?: boolean;
-  last_error?: string | null;
-  [key: string]: unknown;
+  python: string;
+  pythonpath: string;
+  mode: "dev" | "managed";
+  found: boolean;
+  python_found: boolean;
+  package_found: boolean;
+  source: "env" | "dev-venv" | "managed";
+  runtime_root: string;
+  bootstrap_script: string;
+  bootstrap_script_found: boolean;
+  bootstrap_running: boolean;
 }
 
+/** Arguments of `runtime_bootstrap` (Tauri maps camelCase onto the snake_case Rust parameters). */
+export interface RuntimeBootstrapArgs {
+  /** `--with-chatterbox` / `--without-chatterbox`; the script's own default when omitted. */
+  withChatterbox?: boolean;
+  /** Sets `SFVS_AUTO_INSTALL_UV=1` so the script may download `uv` when it is missing. */
+  autoInstallUv?: boolean;
+}
+
+/** One `runtime://log` line; `stream` is "stdout" | "stderr" | "system". */
 export interface RuntimeLogLine {
   line: string;
+  stream?: string;
 }
 
 export interface PickSavePathParams {
@@ -1269,7 +1321,8 @@ export interface ShellCommands {
   worker_restart: { args: Record<string, never>; result: void };
   app_paths: { args: Record<string, never>; result: AppPathsInfo };
   runtime_status: { args: Record<string, never>; result: RuntimeStatus };
-  runtime_bootstrap: { args: Record<string, never>; result: unknown };
+  /** Resolves with the script's exit code (0); a non-zero exit rejects with a `WorkerError`. */
+  runtime_bootstrap: { args: RuntimeBootstrapArgs; result: number };
   pick_audio_files: { args: Record<string, never>; result: string[] | null };
   pick_text_file: { args: Record<string, never>; result: string | null };
   pick_save_path: { args: PickSavePathParams; result: string | null };

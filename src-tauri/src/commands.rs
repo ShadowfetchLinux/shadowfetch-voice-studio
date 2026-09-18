@@ -217,8 +217,9 @@ impl Drop for BootstrapGuard<'_> {
 }
 
 /// Run `scripts/bootstrap.sh --runtime-dir <data>/runtime`, streaming every output line as a
-/// `runtime://log` event, and return its exit code (-1 when killed by a signal). Refused with
-/// `BUSY` while a bootstrap is already running. A successful run restarts the worker.
+/// `runtime://log` event. Returns `Ok(0)` and restarts the worker on success; any other exit
+/// code (-1 when killed by a signal) is an `INTERNAL` error with `details.exit_code`.
+/// Refused with `BUSY` while a bootstrap is already running.
 ///
 /// `with_chatterbox` adds `--with-chatterbox` / `--without-chatterbox` (script default when
 /// omitted); `auto_install_uv` sets `SFVS_AUTO_INSTALL_UV=1` so the script may fetch `uv`.
@@ -294,9 +295,14 @@ pub async fn runtime_bootstrap(
     let code = status.code().unwrap_or(-1);
     emit_line("system", format!("bootstrap exited with code {code}"));
     info!("runtime bootstrap finished with code {code}");
-    if code == 0 {
-        state.supervisor.restart();
+    if code != 0 {
+        return Err(WorkerError::new(
+            codes::INTERNAL,
+            format!("The runtime bootstrap exited with code {code}; see the log above."),
+        )
+        .with_details(json!({ "exit_code": code })));
     }
+    state.supervisor.restart();
     Ok(code)
 }
 
