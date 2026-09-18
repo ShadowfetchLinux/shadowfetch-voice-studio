@@ -51,9 +51,9 @@ def basic_stats(path: Path, clip_level: float = 0.999) -> dict[str, Any]:
     rms = math.sqrt(sumsq / n) if n else 0.0
     warnings: list[dict[str, Any]] = []
     if clipped:
-        warnings.append({"code": "clipping", "message": f"{clipped} samples at or above {dbfs(clip_level)} dBFS.", "heuristic": True})
+        warnings.append({"code": "CLIPPING", "message": f"{clipped} samples at or above {dbfs(clip_level)} dBFS.", "heuristic": True})
     if n and dbfs(peak) < -30:
-        warnings.append({"code": "quiet", "message": f"Peak level is only {dbfs(peak)} dBFS; raise the input gain.", "heuristic": True})
+        warnings.append({"code": "TOO_QUIET", "message": f"Peak level is only {dbfs(peak)} dBFS; raise the input gain.", "heuristic": True})
     return {"duration_s": round(info.frames / info.samplerate, 4) if info.samplerate else 0.0, "sample_rate": info.samplerate,
             "channels": info.channels, "peak_dbfs": dbfs(peak), "rms_dbfs": dbfs(rms), "clipping_samples": clipped,
             "warnings": warnings, "source": "record.session.basic_stats"}

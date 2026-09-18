@@ -24,6 +24,7 @@ from ..store.db import dumps, new_id
 
 log = logging.getLogger("jobs.record")
 _sessions_lock = threading.Lock()
+WORKING_SAMPLE_RATE = 48000          # working.wav is float32 mono 48 kHz (docs/ARCHITECTURE.md)
 SUBTYPE_CODEC = {"PCM_16": "pcm_s16le", "PCM_24": "pcm_s24le", "PCM_32": "pcm_s32le", "FLOAT": "pcm_f32le", "DOUBLE": "pcm_f64le"}
 
 
@@ -173,14 +174,14 @@ def shutdown_sessions(state: dict[str, Any]) -> None:
 
 # ---- helpers
 def _decode_working(original: Path, working: Path, notes: list[str]) -> Path | None:
-    """float32 mono working copy through the audio module's ffmpeg wrapper when it exists; else None (documented)."""
+    """float32 mono 48 kHz working copy through `audio.ffmpeg.decode_to_wav` when it exists; else None (documented)."""
     try:
         from ..audio.ffmpeg import decode_to_wav
     except ImportError:
         notes.append("audio.ffmpeg.decode_to_wav is not available; working.wav was not created (audio.import can decode later).")
         return None
     try:
-        decode_to_wav(original, working)
+        decode_to_wav(original, working, sample_rate=WORKING_SAMPLE_RATE, channels=1, sample_fmt="f32")
     except Exception as e:  # noqa: BLE001 — the original is safe on disk; the working copy is regenerable
         log.warning("decode_to_wav failed for %s: %s", original, e)
         notes.append(f"Creating working.wav failed: {str(e)[:200]}")

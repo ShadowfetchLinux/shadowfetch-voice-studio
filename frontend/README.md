@@ -1,0 +1,88 @@
+# Shadowfetch Voice Studio — frontend
+
+React 18 + TypeScript + Vite 6 + Tailwind v4 UI for the Tauri 2 desktop shell. It never talks to the
+Python worker directly: every call goes through the Rust commands (`worker_request`, `worker_cancel`, …)
+and the shell events (`worker://progress`, `worker://event`, `worker://status`, `runtime://log`).
+
+```
+npm install
+npm run dev        # Vite on http://localhost:1420 (strictPort) — Tauri points its devUrl here
+npm run build      # tsc --noEmit + vite build → dist/ (Tauri frontendDist)
+npm test -- --run  # vitest (jsdom)
+npm run typecheck
+```
+
+Requires Node ≥ 20.19 (22.x works). No web fonts or CDN assets; the font stack is
+`Inter, "Segoe UI", system-ui, sans-serif`.
+
+## Layout
+
+| path | what |
+|------|------|
+| `src/lib/protocol.ts` | Types for every method/params/result/event in `docs/PROTOCOL.md` plus the Rust command surface (`Methods`, `ShellCommands`, `ShellEvents`). |
+| `src/lib/api.ts` | **The only module that imports `@tauri-apps/api`.** `request(method, params, {onProgress, signal})` generates a UUID id, fans progress events out by id, and normalises every failure into `WorkerError {code, message, details, recoverable}`. Typed helpers live under `api.<namespace>.*`; `api.shell.*` wraps the Rust commands; `api.events.on('record.level', cb)` returns an unsubscribe function. |
+| `src/lib/devmock.ts` | Browser-preview mock. Used only when `import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)`; the production bundle does not contain it. Every value is labelled "(mock)" and the header shows a **PREVIEW MOCK** badge. |
+| `src/styles/theme.css` | Tailwind v4 `@theme` tokens (colours, radii, font stack, shadows) and base styles. |
+| `src/components/ui/` | Design system (see below). Import from `@/components/ui`. |
+| `src/components/audio/` | `Waveform`, `PlayerBar`, `usePlayer`, `waveformMath` (pure helpers). |
+| `src/components/shell/` | Sidebar, header status pills (+ GPU polling), keyboard shortcuts, error boundary. |
+| `src/components/settings/AudioDevices.tsx` | Device pickers + test tone, shared by Settings and Setup. |
+| `src/components/model-manager/ModelRow.tsx` | Download (with license/repo/size confirmation) / Cancel / Verify / Use existing folder / Remove for one model. |
+| `src/store/appStore.ts` | zustand store: page routing, diagnostics, settings, engines, models, worker status, GPU status, live engine/model events, loaders with error toasts (`handleError`). |
+| `src/store/modelOps.ts` | Long-running model/engine operations that must survive page changes (downloads with byte progress, load/unload). |
+| `src/pages/` | `HomePage`, `SettingsPage`, `SetupPage`; `VoicesPage` / `CreatePage` / `LibraryPage` are placeholders owned by other agents (default export, no props). |
+
+## Design tokens
+
+Sidebar `#1f2327`, work area `#f7f5f1`, panel `#ffffff`, border `#e6e2dc`, text `#1f2328`,
+muted `#656d7a` (≥ 4.5:1 on both backgrounds), accent `#2f6fe4` / hover `#2559c4`, success `#1a7f4b`,
+warn `#b45309`, danger `#c62828`. Panels use 12 px radius (`.panel`), controls 8 px and ≥ 40 px tall
+(`.control`). Spacing follows Tailwind's 4 px base — use even steps (`gap-2` = 8 px, `p-4` = 16 px, …)
+to stay on the 8 px grid. Focus rings: `:focus-visible` outline 2 px accent with offset.
+
+## Components (`@/components/ui`)
+
+`Button` (primary/secondary/ghost/danger; sm/md/lg; `loading`; `icon`), `IconButton` (needs `label`),
+`Card`/`Panel` (title, description, actions, footer, `flush`), `Input`, `Textarea`, `Select` (native),
+`Switch`, `Checkbox`, `Slider` (numeric readout + reset) and `ControlSlider` (bound to an engine-declared
+`ControlSpec`; renders nothing for non-numeric specs), `Tabs`/`TabPanel`, `Dialog` (focus trap, Esc,
+focus restore) and `ConfirmDialog`, `ToastProvider` + `toast.success/error/info/warning`, `ProgressBar`
+("3 of 12 segments" from measured counts, indeterminate otherwise), `StatusPill`, `EmptyState`,
+`Tooltip`, `Kbd`, `Meter` (dBFS, peak hold, latched CLIP), `Spinner`, `Collapsible`.
+
+Rule from the architecture doc: the UI renders **only** controls an engine declared in its
+`Capabilities`. Use `ControlSlider`/`Select` driven by `capabilities.controls`, never hard-coded knobs.
+
+## Waveform
+
+```tsx
+const player = usePlayer({ path: take.path, selection, restrictToSelection: true });
+<Waveform peaks={peaks} duration={duration} currentTime={player.currentTime} onSeek={player.seek}
+          selectable selection={selection} onSelectionChange={setSelection} />
+<PlayerBar player={player} hasSelection={!!selection} />
+```
+
+Peaks come from `audio.peaks` (`[[min,max], …]`). Click seeks, drag selects (when `selectable`), handles
+are draggable and keyboard-nudgeable (← → 0.05 s, shift 0.5 s, Home/End), zoom 1×–16× with ctrl+wheel or
+the buttons, horizontal scroll when zoomed. `usePlayer` wraps an `HTMLAudioElement` fed by the Tauri asset
+protocol (`api.shell.fileSrc(path)`) and can restrict/loop playback to the selection.
+
+## Routing and shortcuts
+
+Pages are switched through the store: `useAppStore.getState().navigate('create', { projectId })`.
+`RouteParams` carries `projectId`, `voiceId`, `action` (`record` | `import` | `new`) and `section`.
+Keys 1–5 navigate (Home, Voices, Create, Library, Settings), `?` shows the shortcut list.
+
+## Tests
+
+`src/test/api.test.ts` (id generation, progress routing, errors, cancel/abort, event subscriptions with a
+mocked `invoke`/`listen`), `waveform.test.ts` (geometry, selection, nudging, peak aggregation),
+`waveform.component.test.tsx`, `ui.test.tsx` (design system behaviour), `app.test.tsx` (App smoke render
+through the dev mock).
+
+## Shell contract this UI relies on
+
+- `worker_request({ id, method, params })` resolves with the result or rejects with the protocol error object.
+- `worker://progress` payloads carry the request `id`; `worker://event` is `{ event, data }`.
+- `pick_*` dialogs resolve `null` (or `[]` for `pick_audio_files`) when cancelled.
+- Tauri CSP must allow `media-src asset: http://asset.localhost` so `<audio>` can play local files.

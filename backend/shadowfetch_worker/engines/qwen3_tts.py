@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from ..protocol import INVALID_PARAMS, MODEL_LOAD_FAILED, WorkerError
-from ._common import (apply_seed, audio_duration_s, cuda_sync_and_vram, filter_settings, package_version, release_cuda,
-                      snapshot_revision, write_wav_24)
+from ._common import (apply_control_defaults, apply_seed, audio_duration_s, cuda_sync_and_vram, filter_settings, intended_device,
+                      package_version, prompt_settings, release_cuda, snapshot_revision, write_prompt_meta, write_wav_24)
 from .base import Capabilities, ControlSpec, EngineAdapter, GenerateResult, Language, ReferenceRequirements
 
 log = logging.getLogger("engines.qwen3_tts")
@@ -29,6 +29,9 @@ MODEL_ID = "qwen3-tts-12hz-1.7b-base"
 MODEL_REPO = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 OUTPUT_SR = 24000
 MAX_CHARS = 400
+# Controls that shape the reusable prompt (VoiceClonePromptItem list): part of the prompt-cache identity.
+PROMPT_CONTROLS: tuple[str, ...] = ("x_vector_only_mode",)
+GEN_KWARG_IDS = ("temperature", "repetition_penalty", "top_p", "top_k", "subtalker_temperature", "max_new_tokens")
 
 # app code -> (label, exact engine value). The engine validates case-insensitively against
 # model.get_supported_languages(); "Auto" lets the model detect the language.
@@ -95,7 +98,8 @@ class Qwen3TTSAdapter(EngineAdapter):
                       "segments under ~400 characters. Any format/sample rate is accepted (resampled to 24 kHz mono internally)."),
             controls=list(CONTROLS), tags=[], max_chars_per_request=MAX_CHARS,
             supports_cancel=True, cancel_granularity="segment", supports_seed=True, supports_reusable_prompt=True,
-            supports_multi_reference=False, watermark=None, license="Apache-2.0", device=self.device,
+            supports_multi_reference=False, prompt_controls=list(PROMPT_CONTROLS), watermark=None, license="Apache-2.0",
+            device=self.device if self.model is not None else intended_device(),
             notes="Cancel aborts the running segment by stopping the engine process (the engine must reload afterwards). "
                   "Seeds are applied with torch.manual_seed and repeat a result on the same machine/environment only; they are "
                   "not reproducible across torch/CUDA versions or GPUs. bf16 on CUDA, fp32 on CPU (fp16 is not safe for this model).",
@@ -150,7 +154,13 @@ class Qwen3TTSAdapter(EngineAdapter):
         return self.model is not None
 
     def health(self) -> dict[str, Any]:
-        return {"loaded": self.loaded(), "device": self.device, "dtype": self.dtype_name, "revision": self.revision}
+        out = {"loaded": self.loaded(), "device": self.device, "dtype": self.dtype_name, "revision": self.revision}
+        if self.model is not None:
+            try:
+                out["supported_languages"] = self.model.get_supported_languages()
+            except Exception:  # noqa: BLE001
+                pass
+        return out
 
     # ------------------------------------------------------------------ prompts
     def _require_model(self):
@@ -202,12 +212,14 @@ class Qwen3TTSAdapter(EngineAdapter):
             it.ref_spk_embedding = it.ref_spk_embedding.to(dev)
         return items
 
-    def prepare_reference(self, reference_path: Path, transcript: str, language: str, cache_path: Path) -> dict[str, Any]:
+    def prepare_reference(self, reference_path: Path, transcript: str, language: str, cache_path: Path,
+                          settings: dict[str, Any] | None = None) -> dict[str, Any]:
         reference_path = Path(reference_path)
         if not reference_path.exists():
             raise WorkerError(INVALID_PARAMS, f"Reference file not found: {reference_path}")
+        x_vector_only = bool(prompt_settings(settings, CONTROLS, PROMPT_CONTROLS)["x_vector_only_mode"])
         t0 = time.time()
-        items = self._build_items(reference_path, transcript, x_vector_only=False)
+        items = self._build_items(reference_path, transcript, x_vector_only=x_vector_only)
         cache_path = Path(cache_path)
         self.save_items(items, cache_path)
         self._prompt_cache.pop(str(cache_path), None)
@@ -215,7 +227,9 @@ class Qwen3TTSAdapter(EngineAdapter):
             ref_seconds = round(audio_duration_s(reference_path), 3)
         except Exception:  # noqa: BLE001
             ref_seconds = None
-        return {"path": str(cache_path), "meta": {"items": len(items), "x_vector_only_mode": False, "icl_mode": True,
+        write_prompt_meta(cache_path, {"x_vector_only_mode": x_vector_only, "revision": self.revision, "engine_id": ENGINE_ID,
+                                       "ref_seconds": ref_seconds})
+        return {"path": str(cache_path), "meta": {"items": len(items), "x_vector_only_mode": x_vector_only, "icl_mode": not x_vector_only,
                                                  "ref_seconds": ref_seconds, "revision": self.revision,
                                                  "elapsed_s": round(time.time() - t0, 3)}}
 
@@ -233,7 +247,7 @@ class Qwen3TTSAdapter(EngineAdapter):
         return items
 
     # ------------------------------------------------------------------ generation
-    def generate(self, text: str, language: str, reference_path: Path, transcript: str, out_path: Path,
+    def generate(self, text: str, language: str, reference_path: Path | None, transcript: str, out_path: Path,
                  settings: dict[str, Any], seed: int | None = None, prompt_cache_path: Path | None = None,
                  cancel_check=None) -> GenerateResult:
         model = self._require_model()
@@ -244,31 +258,35 @@ class Qwen3TTSAdapter(EngineAdapter):
         if len(text) > MAX_CHARS:
             warnings.append(f"Text is {len(text)} characters (> {MAX_CHARS}); long inputs may drop the final words.")
         lang_value = _language_value(language)
-        cfg = filter_settings(settings, CONTROLS)
-        x_vector_only = bool(cfg.pop("x_vector_only_mode", False))
-        gen_kwargs = {k: v for k, v in cfg.items() if k in ("temperature", "repetition_penalty", "top_p", "top_k",
-                                                            "subtalker_temperature", "max_new_tokens")}
+        # Declared defaults are always applied: otherwise the wrapper falls back to the checkpoint's generation_config
+        # (max_new_tokens=8192 in the pinned snapshot) while the UI shows 2048 and the truncation warning assumes 2048.
+        cfg = apply_control_defaults(filter_settings(settings, CONTROLS), CONTROLS)
+        x_vector_only = bool(cfg.pop("x_vector_only_mode"))
+        gen_kwargs = {k: cfg[k] for k in GEN_KWARG_IDS}
         if cancel_check:
             cancel_check()
 
         # prompt: cached items when they exist and match the requested mode; otherwise from the reference file
         items = None
+        why = "no prompt cache was given"
         if prompt_cache_path is not None and Path(prompt_cache_path).exists():
             try:
                 items = self._cached_items(Path(prompt_cache_path))
                 if items and bool(items[0].x_vector_only_mode) != x_vector_only:
-                    log.info("prompt cache mode (x_vector_only=%s) differs from requested (%s); rebuilding from reference",
-                             items[0].x_vector_only_mode, x_vector_only)
+                    why = f"prompt cache mode (x_vector_only={items[0].x_vector_only_mode}) differs from requested ({x_vector_only})"
+                    log.info("%s; rebuilding from reference", why)
                     items = None
             except Exception as e:  # noqa: BLE001
                 log.warning("prompt cache %s could not be loaded (%s); falling back to ref_audio/ref_text", prompt_cache_path, e)
                 warnings.append("Prompt cache unreadable — rebuilt the voice prompt from the reference audio.")
+                why = "the prompt cache is unreadable"
                 items = None
         if items is None:
-            reference_path = Path(reference_path)
-            if not reference_path.exists():
-                raise WorkerError(INVALID_PARAMS, f"Reference file not found: {reference_path}")
-            items = self._build_items(reference_path, transcript, x_vector_only)
+            if reference_path is None or not Path(reference_path).exists():
+                raise WorkerError(INVALID_PARAMS, f"No usable voice prompt: {why} and no reference file was given"
+                                  + (f" (missing: {reference_path})" if reference_path else "") + ".",
+                                  {"reference_path": str(reference_path or "")})
+            items = self._build_items(Path(reference_path), transcript, x_vector_only)
 
         used_seed = apply_seed(seed)
         t0 = time.time()
@@ -282,7 +300,7 @@ class Qwen3TTSAdapter(EngineAdapter):
         duration = write_wav_24(Path(out_path), wav, int(sr))
         if int(sr) != OUTPUT_SR:
             warnings.append(f"Engine reported {sr} Hz (expected {OUTPUT_SR}).")
-        frames = int(gen_kwargs.get("max_new_tokens", 2048))
+        frames = int(gen_kwargs["max_new_tokens"])
         if duration >= frames / 12.5 * 0.98:
             warnings.append("Output hit the max codec frame limit; the text may be truncated — raise 'Max codec frames' or split it.")
         log.info("qwen3-tts generated %.2fs of audio in %.2fs (%.1fx realtime) seed=%s", duration, elapsed, duration / max(elapsed, 1e-6), used_seed)

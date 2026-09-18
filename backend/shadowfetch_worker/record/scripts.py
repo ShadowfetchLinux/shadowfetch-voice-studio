@@ -34,11 +34,11 @@ _SCRIPTS: list[dict[str, str]] = [
             "The river begins as a thin stream, high in the hills, where snow lingers until late May. By the time "
             "it reaches the valley floor, some forty kilometres downstream, it is wide enough to carry small boats, "
             "and slow enough to reflect the sky. Along its banks, the first settlements appeared more than two "
-            "thousand years ago. Why here, and not further north? The answer is simple: the soil is rich, the "
-            "winters are mild, and the water never runs dry. Today, roughly one hundred and eighty thousand people "
-            "live within an hour's walk of the water. In the early evening the surface goes still, and for a few "
-            "minutes the whole valley seems to hold its breath. Then the wind returns, the reeds begin to move, "
-            "and the river carries on toward the sea."
+            "thousand years ago, and the stone bridge finished in 1712 still carries traffic today. Why here, and "
+            "not further north? The answer is simple: the soil is rich, the winters are mild, and the water never "
+            "runs dry. In the early evening the surface goes still, and for a few minutes the whole valley seems "
+            "to hold its breath. Then the wind returns, the reeds begin to move, and the river carries on toward "
+            "the sea."
         ),
     },
     {
@@ -47,13 +47,13 @@ _SCRIPTS: list[dict[str, str]] = [
         "style": "energetic_presentation",
         "text": (
             "Good morning, everyone, and thank you for being here! Let's jump straight in, because we have a lot "
-            "to cover in the next twenty minutes. Last quarter, the team shipped fourteen updates, cut the average "
-            "response time from six seconds to under two, and grew the number of active users by thirty-one "
+            "to cover in the next 20 minutes. Last quarter, the team shipped 14 updates, cut the average "
+            "response time from 6 seconds to under 2, and grew the number of active users by thirty-one "
             "percent. Thirty-one percent! So what changed? Three things. First, we listened. Second, we simplified. "
             "Third, we stopped guessing and started measuring. Now, here is the question I want you to keep in "
             "mind: what would you build if you knew exactly what your users needed on Tuesday morning at nine "
             "o'clock? That's where we're headed next. Over the coming five weeks we'll roll out two new features, "
-            "run a survey with five hundred participants, and share every result with you. Ready? Let's go!"
+            "run a survey with 500 participants, and share every result with you. Ready? Let's go!"
         ),
     },
 ]

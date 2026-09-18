@@ -29,9 +29,9 @@ def search(ctx: Ctx, p: Search) -> dict[str, Any]:
         "SELECT * FROM projects p WHERE (name LIKE ? OR tags_json LIKE ? OR IFNULL(notes,'') LIKE ? OR folder LIKE ? "
         "OR EXISTS (SELECT 1 FROM scripts s WHERE s.project_id = p.id AND s.text LIKE ? "
         "AND s.version = (SELECT MAX(version) FROM scripts WHERE project_id = p.id)))" + arch +
-        " ORDER BY updated_at DESC LIMIT ?", (like, like, like, like, like, p.limit))
+        " ORDER BY updated_at DESC, rowid DESC LIMIT ?", (like, like, like, like, like, p.limit))
     voices = db.all("SELECT * FROM voices WHERE (name LIKE ? OR tags_json LIKE ? OR IFNULL(notes,'') LIKE ?)" + arch +
-                    " ORDER BY updated_at DESC LIMIT ?", (like, like, like, p.limit))
+                    " ORDER BY updated_at DESC, rowid DESC LIMIT ?", (like, like, like, p.limit))
     return {"projects": [repo.project_dict(r) for r in projects],
             "voices": [repo.voice_dict(db, r, with_references=False) for r in voices]}
 

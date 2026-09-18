@@ -163,7 +163,8 @@ def decode_to_wav(src: Path, dst: Path, sample_rate: int | None = None, channels
     """Decode any ffmpeg-readable file to a WAV in a single pass (`-vn`, first audio stream, optional soxr resample).
 
     Atomic: writes `<dst>.tmp` then `os.replace`. `extra_filters` are appended before the resampler (e.g. atrim).
-    Returns the probe of the written file plus `path`.
+    Multi-channel → mono uses an explicit equal-weight average (`pan`), the same mix as `analysis.to_mono`, instead of
+    ffmpeg's default +3 dB rematrix. Returns the probe of the written file plus `path`.
     """
     src, dst = Path(src), Path(dst)
     if sample_fmt not in SAMPLE_FMT_CODEC:
@@ -173,6 +174,9 @@ def decode_to_wav(src: Path, dst: Path, sample_rate: int | None = None, channels
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_name(dst.name + ".tmp")
     filters = list(extra_filters or [])
+    src_channels = int(probe(src)["channels"])
+    if channels == 1 and src_channels > 1:
+        filters.insert(0, "pan=mono|c0=" + "+".join(f"{1 / src_channels:.6f}*c{i}" for i in range(src_channels)))
     args: list[str] = ["-y", "-i", str(src), "-vn", "-sn", "-dn", "-map", "0:a:0", "-map_metadata", "-1", "-ac", str(int(channels))]
     if sample_rate:
         filters.append(soxr_filter(sample_rate))

@@ -25,7 +25,8 @@ TRIM_PAD_MS = 40
 FADE_MS = 5.0
 
 
-def _check_range(start_s: float | None, end_s: float | None) -> None:
+def check_range(start_s: float | None, end_s: float | None) -> None:
+    """INVALID_PARAMS unless start_s >= 0 and end_s > start_s (None means open-ended)."""
     if start_s is not None and start_s < 0:
         raise WorkerError(INVALID_PARAMS, "start_s must be >= 0")
     if start_s is not None and end_s is not None and end_s <= start_s:
@@ -41,13 +42,17 @@ def _require_length(data: np.ndarray, sr: int, what: str) -> None:
 def trim(src: Path, dst: Path, start_s: float, end_s: float, subtype: str = "PCM_24") -> dict[str, Any]:
     """Write `[start_s, end_s)` of `src` to `dst` (channels preserved). EMPTY_AUDIO when the result is <= 0.1 s."""
     src, dst = Path(src), Path(dst)
-    _check_range(start_s, end_s)
+    check_range(start_s, end_s)
     if src.resolve() == dst.resolve():
         raise WorkerError(INVALID_PARAMS, "trim never modifies its input: choose a different output path")
-    data, sr = read_frames(src, start_s, end_s)
-    _require_length(data, sr, "The trimmed clip")
-    write_wav(dst, data, sr, subtype)
-    return {"path": str(dst), "duration_s": round(data.shape[0] / sr, 6), "sample_rate": sr, "channels": int(data.shape[1])}
+    with analysis.opened(src) as f:
+        a, b = analysis.frame_range(f, start_s, end_s)
+        if b - a < MIN_CLIP_S * f.samplerate:
+            raise WorkerError(EMPTY_AUDIO, f"The trimmed clip is shorter than {MIN_CLIP_S:g} s ({(b - a) / f.samplerate:.3f} s)",
+                              {"duration_s": (b - a) / f.samplerate}, True)
+    res = analysis.copy_range_wav(src, dst, start_s, end_s, subtype)     # streamed: long files are never loaded whole
+    return {"path": str(dst), "duration_s": round(res["frames"] / res["sample_rate"], 6), "sample_rate": res["sample_rate"],
+            "channels": res["channels"]}
 
 
 def _fit_channels(data: np.ndarray, channels: int) -> np.ndarray:
@@ -93,7 +98,7 @@ def prepare_reference(working_wav: Path, dst: Path, sample_rate: int, channels: 
     duration_s, stats, gain_db}.
     """
     working_wav, dst = Path(working_wav), Path(dst)
-    _check_range(start_s, end_s)
+    check_range(start_s, end_s)
     if channels < 1 or channels > 2:
         raise WorkerError(INVALID_PARAMS, "channels must be 1 or 2")
     data, sr = read_frames(working_wav, start_s, end_s)

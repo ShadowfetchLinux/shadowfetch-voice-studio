@@ -54,6 +54,54 @@ def filter_settings(settings: dict[str, Any] | None, controls: list[ControlSpec]
     return out
 
 
+def apply_control_defaults(cfg: dict[str, Any], controls: list[ControlSpec]) -> dict[str, Any]:
+    """Fill every declared control that the caller omitted with its declared default, so the UI default, the
+    engine behaviour and any threshold derived from the value agree (the wrappers would otherwise fall back to the
+    checkpoint's own generation_config, e.g. Qwen's max_new_tokens=8192 vs the declared 2048)."""
+    for c in controls:
+        cfg.setdefault(c.id, c.default)
+    return cfg
+
+
+def prompt_settings(settings: dict[str, Any] | None, controls: list[ControlSpec], prompt_control_ids: list[str] | tuple[str, ...]) -> dict[str, Any]:
+    """The subset of settings that shapes a reusable prompt, coerced and defaulted (used for cache identity)."""
+    subset = [c for c in controls if c.id in prompt_control_ids]
+    return apply_control_defaults(filter_settings(settings, subset), subset)
+
+
+def intended_device() -> str:
+    """Device an engine will be asked to run on. Static, no torch: 'cuda' when an NVIDIA driver is present.
+    The live device is reported by engine.health / the load result."""
+    import os
+    import shutil
+    if os.environ.get("SFVS_FORCE_CPU") == "1":
+        return "cpu"
+    if os.path.exists("/proc/driver/nvidia/version") or os.path.exists("/dev/nvidia0") or shutil.which("nvidia-smi"):
+        return "cuda"
+    return "cpu"
+
+
+def prompt_meta_path(cache_path: Path) -> Path:
+    return Path(cache_path).with_name(Path(cache_path).name + ".meta.json")
+
+
+def write_prompt_meta(cache_path: Path, meta: dict[str, Any]) -> None:
+    """Sidecar JSON next to a prompt cache (which settings produced it; used to detect stale/ mismatching caches)."""
+    import json
+    mp = prompt_meta_path(cache_path)
+    tmp = mp.with_name(mp.name + ".part")
+    tmp.write_text(json.dumps(meta, sort_keys=True, default=str))
+    tmp.replace(mp)
+
+
+def read_prompt_meta(cache_path: Path) -> dict[str, Any] | None:
+    import json
+    try:
+        return json.loads(prompt_meta_path(cache_path).read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def apply_seed(seed: int | None) -> int:
     """Seed torch (CPU + every CUDA device) and Python's random. Returns the seed actually used.
 

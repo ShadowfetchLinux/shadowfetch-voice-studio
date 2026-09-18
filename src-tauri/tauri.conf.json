@@ -50,8 +50,8 @@
     ],
     "resources": {
       "../backend/shadowfetch_worker": "backend/shadowfetch_worker",
-      "../backend/pyproject.toml": "backend/pyproject.toml",
-      "../backend/uv.lock": "backend/uv.lock",
+      "../backend/requirements": "backend/requirements",
+      "../backend/runtime.json": "backend/runtime.json",
       "../scripts": "scripts",
       "../docs/*.md": "docs"
     },

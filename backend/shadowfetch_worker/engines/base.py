@@ -59,10 +59,11 @@ class Capabilities(BaseModel):
     supports_seed: bool
     supports_reusable_prompt: bool
     supports_multi_reference: bool = False
+    prompt_controls: list[str] = Field(default_factory=list)   # control ids that shape the reusable prompt (part of its cache identity)
     watermark: str | None = None       # e.g. "perth" for Chatterbox
     post_processing: list[ControlSpec] = Field(default_factory=list)   # app-side (ffmpeg) options, labelled as such
     cancel_granularity: Literal["segment", "token"] = "segment"
-    device: str = "cuda"
+    device: str = "cuda"               # intended device (env probe / CUDA availability), not a live value: see engine.health
     notes: str = ""
     license: str = ""
 
@@ -94,14 +95,17 @@ class EngineAdapter(ABC):
     @abstractmethod
     def loaded(self) -> bool: ...
 
-    def prepare_reference(self, reference_path: Path, transcript: str, language: str, cache_path: Path) -> dict[str, Any]:
-        """Build a reusable engine-specific prompt for a reference. Optional; returns {path, meta}."""
+    def prepare_reference(self, reference_path: Path, transcript: str, language: str, cache_path: Path,
+                          settings: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Build a reusable engine-specific prompt for a reference. Optional; returns {path, meta}.
+        `settings` carries the engine controls that shape the prompt (they are part of the cache identity)."""
         raise NotImplementedError
 
     @abstractmethod
-    def generate(self, text: str, language: str, reference_path: Path, transcript: str, out_path: Path,
+    def generate(self, text: str, language: str, reference_path: Path | None, transcript: str, out_path: Path,
                  settings: dict[str, Any], seed: int | None = None, prompt_cache_path: Path | None = None,
-                 cancel_check=None) -> GenerateResult: ...
+                 cancel_check=None) -> GenerateResult:
+        """Synthesize `text`. At least one of prompt_cache_path / reference_path must be usable; raise INVALID_PARAMS otherwise."""
 
     def health(self) -> dict[str, Any]:
         return {"loaded": self.loaded()}

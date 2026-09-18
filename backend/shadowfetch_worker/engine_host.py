@@ -77,18 +77,19 @@ def main(argv: list[str] | None = None) -> int:
 
     class PrepareParams(BaseModel):
         reference_path: str
-        transcript: str
-        language: str
+        transcript: str = ""
+        language: str = "auto"
         cache_path: str
+        settings: dict[str, Any] = {}     # engine controls that shape the prompt (e.g. Chatterbox norm_loudness)
 
     @method("engine.prepare", gpu=True, params=PrepareParams)
     def prepare(ctx: Ctx, p: PrepareParams) -> dict[str, Any]:
-        return adapter.prepare_reference(Path(p.reference_path), p.transcript, p.language, Path(p.cache_path))
+        return adapter.prepare_reference(Path(p.reference_path), p.transcript, p.language, Path(p.cache_path), settings=p.settings)
 
     class GenParams(BaseModel):
         text: str
         language: str
-        reference_path: str
+        reference_path: str | None = None     # at least one of reference_path / prompt_cache_path must be usable
         transcript: str = ""
         out_path: str
         settings: dict[str, Any] = {}
@@ -98,8 +99,8 @@ def main(argv: list[str] | None = None) -> int:
     @method("engine.generate", gpu=True, params=GenParams)
     def generate(ctx: Ctx, p: GenParams) -> dict[str, Any]:
         try:
-            res = adapter.generate(p.text, p.language, Path(p.reference_path), p.transcript, Path(p.out_path), p.settings, p.seed,
-                                   Path(p.prompt_cache_path) if p.prompt_cache_path else None, cancel_check=ctx.check_cancel)
+            res = adapter.generate(p.text, p.language, Path(p.reference_path) if p.reference_path else None, p.transcript, Path(p.out_path),
+                                   p.settings, p.seed, Path(p.prompt_cache_path) if p.prompt_cache_path else None, cancel_check=ctx.check_cancel)
         except WorkerError:
             raise
         except Exception as e:  # noqa: BLE001

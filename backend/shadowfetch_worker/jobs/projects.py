@@ -166,7 +166,7 @@ def list_(ctx: Ctx, p: ProjectList) -> dict[str, Any]:
     for tag in p.tags:
         where.append("EXISTS (SELECT 1 FROM json_each(projects.tags_json) WHERE value = ?)")
         args.append(tag)
-    order = {"updated": "updated_at DESC", "created": "created_at DESC", "name": "name COLLATE NOCASE ASC"}[p.sort]
+    order = {"updated": "updated_at DESC, rowid DESC", "created": "created_at DESC, rowid DESC", "name": "name COLLATE NOCASE ASC"}[p.sort]
     sql = "SELECT * FROM projects" + (" WHERE " + " AND ".join(where) if where else "") + f" ORDER BY {order} LIMIT ?"
     rows = db.all(sql, tuple(args) + (p.limit,))
     return {"projects": [_summary(db, r) for r in rows]}
@@ -245,7 +245,9 @@ def duplicate(ctx: Ctx, p: Duplicate) -> dict[str, Any]:
                       (new_id("scr"), new_pid, s["version"], s["text"], s["created_at"]))
         for s in segments:
             new_sid = new_id("seg")
-            selected = None
+            c.execute("INSERT INTO segments (id, project_id, plan_version, idx, paragraph, text, normalized_text, substitutions_json) "
+                      "VALUES (?,?,?,?,?,?,?,?)", (new_sid, new_pid, s["plan_version"], s["idx"], s["paragraph"], s["text"],
+                                                  s["normalized_text"], s["substitutions_json"]))
             for t in takes.get(s["id"], []):
                 new_tid = new_id("take")
                 dst = new_dir / "segments" / new_sid / f"{new_tid}.wav"
@@ -258,10 +260,7 @@ def duplicate(ctx: Ctx, p: Duplicate) -> dict[str, Any]:
                           (new_tid, new_sid, new_pid, t["engine_id"], t["model_revision"], t["reference_id"], str(dst), t["sample_rate"],
                            t["duration_s"], t["seed"], dumps(t["settings"]), t["label"], t["status"], t["created_at"]))
                 if t["id"] == s["selected_take_id"]:
-                    selected = new_tid
-            c.execute("INSERT INTO segments (id, project_id, plan_version, idx, paragraph, text, normalized_text, substitutions_json, selected_take_id) "
-                      "VALUES (?,?,?,?,?,?,?,?,?)", (new_sid, new_pid, s["plan_version"], s["idx"], s["paragraph"], s["text"],
-                                                    s["normalized_text"], s["substitutions_json"], selected))
+                    c.execute("UPDATE segments SET selected_take_id = ? WHERE id = ?", (new_tid, new_sid))
     log.info("duplicated project %s -> %s (%d take files)", p.id, new_pid, copied)
     return project_view(st, new_pid)["project"]
 

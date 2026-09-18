@@ -17,6 +17,7 @@ import logging
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -233,15 +234,25 @@ def recordable_pulse_sources(sources: list[PulseSource] | None = None) -> list[P
     return real or [s for s in src if s.is_monitor]
 
 
+_ffmpeg_pulse_ok: str | None = None    # path of an ffmpeg known to have the pulse demuxer (positive results only)
+
+
 def ffmpeg_has_pulse() -> bool:
+    """True when the ffmpeg on PATH was built with the `pulse` input device."""
+    global _ffmpeg_pulse_ok
     exe = shutil.which("ffmpeg")
     if not exe:
         return False
+    if exe == _ffmpeg_pulse_ok:
+        return True
     try:
         r = subprocess.run([exe, "-hide_banner", "-demuxers"], capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return False
-    return any(ln.split()[1:2] == ["pulse"] for ln in r.stdout.splitlines() if ln.strip())
+    ok = any(ln.split()[1:2] == ["pulse"] for ln in r.stdout.splitlines() if ln.strip())
+    if ok:
+        _ffmpeg_pulse_ok = exe
+    return ok
 
 
 class FfmpegPulseBackend(CaptureBackend):
@@ -261,6 +272,7 @@ class FfmpegPulseBackend(CaptureBackend):
         self.source = source or "default"
         self.source_info = source_info
         self._proc: subprocess.Popen | None = None
+        self._stderr = None                       # temp file: ffmpeg can never block on a full stderr pipe
         self._thread: threading.Thread | None = None
         self._start_decided = threading.Event()   # start() decides who reports an early ffmpeg death
         self._started_ok = False
@@ -271,8 +283,9 @@ class FfmpegPulseBackend(CaptureBackend):
             raise WorkerError(DEVICE_UNAVAILABLE, "ffmpeg was not found on PATH (needed for PulseAudio capture).", recoverable=False)
         cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-f", "pulse", "-i", self.source,
                "-ac", "1", "-ar", str(self.sample_rate), "-f", "f32le", "-"]
+        self._stderr = tempfile.TemporaryFile(prefix="sfvs-ffmpeg-rec-")
         try:
-            self._proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self._proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=self._stderr)
         except OSError as e:
             raise WorkerError(DEVICE_UNAVAILABLE, f"Could not start ffmpeg: {e}") from e
         self._thread = threading.Thread(target=self._read_loop, args=(on_block, on_error), name="record-ffmpeg-reader", daemon=True)
@@ -331,11 +344,12 @@ class FfmpegPulseBackend(CaptureBackend):
                              f"{self._stderr_tail()}", {"source": self.source, "returncode": rc}))
 
     def _stderr_tail(self) -> str:
-        proc = self._proc
-        if proc is None or proc.stderr is None:
+        f = self._stderr
+        if f is None:
             return ""
         try:
-            return proc.stderr.read().decode("utf-8", "replace").strip()[-400:] or "(no error output)"
+            f.seek(0)
+            return f.read().decode("utf-8", "replace").strip()[-400:] or "(no error output)"
         except (OSError, ValueError):
             return ""
 
@@ -351,12 +365,12 @@ class FfmpegPulseBackend(CaptureBackend):
                 proc.wait(timeout=2)
         if self._thread and self._thread.is_alive() and threading.current_thread() is not self._thread:
             self._thread.join(timeout=3)
-        if proc is not None:
-            for stream in (proc.stdout, proc.stderr):
-                try:
-                    stream.close()  # type: ignore[union-attr]
-                except (OSError, AttributeError):
-                    pass
+        for stream in ((proc.stdout if proc else None), self._stderr):
+            try:
+                stream.close()  # type: ignore[union-attr]
+            except (OSError, AttributeError):
+                pass
+        self._stderr = None
 
 
 # --------------------------------------------------------------------------- selection

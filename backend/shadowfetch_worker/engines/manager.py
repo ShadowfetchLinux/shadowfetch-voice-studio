@@ -18,8 +18,8 @@ from concurrent.futures import Future
 from pathlib import Path
 from typing import Any
 
-from ..protocol import (ENGINE_CRASHED, ENGINE_UNAVAILABLE, INTERNAL, MODEL_MISSING, CancelledError, WorkerError,
-                        MODEL_LOAD_FAILED)
+from ..protocol import (CANCELLED, ENGINE_CRASHED, ENGINE_UNAVAILABLE, GPU_OOM, INTERNAL, MODEL_MISSING, CancelledError,
+                        WorkerError, MODEL_LOAD_FAILED)
 from ..rpc import Ctx
 from .base import Capabilities
 from .registry import ENGINES, load_adapter_class
@@ -119,6 +119,11 @@ class EngineHost:
                 pass
             except Exception:
                 raise
+            if self.dead.is_set() and not fut.done():
+                # the host exited between alive() and the _pending registration (the reader's finally already drained
+                # _pending) — nothing will ever resolve this future
+                raise WorkerError(ENGINE_CRASHED, self.exit_error or f"The {self.engine_id} engine host exited unexpectedly. "
+                                  f"Check logs/engine-{self.engine_id}.log.", {"engine_id": self.engine_id}, True)
             if ctx is not None and ctx.cancelled():
                 self._send_cancel(rid)
                 # give the host a moment to stop gracefully, then hard-kill (VRAM returned, engine must reload)
@@ -164,7 +169,7 @@ class EngineManager:
         self.st = server.state
         self.hosts: dict[str, EngineHost] = {}
         self.info: dict[str, dict[str, Any]] = {eid: {"state": "unloaded", "model_id": None, "revision": None, "last_used": 0.0,
-                                                     "vram_bytes": None, "message": ""} for eid in ENGINES}
+                                                     "vram_bytes": None, "device": None, "message": ""} for eid in ENGINES}
         self._lock = threading.RLock()
         self._caps: dict[str, Capabilities] = {}
         self._idle = threading.Thread(target=self._idle_loop, daemon=True, name="engine-idle")
@@ -250,11 +255,12 @@ class EngineManager:
                 res = host.call("engine.load", {"model_dir": str(model_dir), "device": device, "revision": revision}, ctx=ctx, timeout=900)
             except WorkerError as e:
                 self._set(engine_id, state="error", message=e.message)
-                if e.code == ENGINE_CRASHED or e.code == "GPU_OOM":
-                    self.unload(engine_id, reason="load failed")
+                hard_cancel = e.code == CANCELLED and (e.details or {}).get("hard_cancel")
+                if e.code in (ENGINE_CRASHED, GPU_OOM) or hard_cancel or not host.alive():
+                    self.unload(engine_id, reason="cancelled" if hard_cancel else "load failed")
                 raise
             self._set(engine_id, state="loaded", model_id=model_id, revision=res.get("revision") or revision,
-                      vram_bytes=res.get("vram_bytes"), message="", last_used=time.time())
+                      vram_bytes=res.get("vram_bytes"), device=res.get("device") or device, message="", last_used=time.time())
             return {"engine_id": engine_id, "model_id": model_id, "revision": self.info[engine_id]["revision"],
                     "load_ms": int((time.time() - t0) * 1000), "vram_bytes": res.get("vram_bytes")}
 
@@ -264,7 +270,7 @@ class EngineManager:
             if host:
                 host.kill()
             if engine_id in self.info:
-                self._set(engine_id, state="unloaded", model_id=None, revision=None, vram_bytes=None, message=reason)
+                self._set(engine_id, state="unloaded", model_id=None, revision=None, vram_bytes=None, device=None, message=reason)
 
     def shutdown_all(self) -> None:
         for eid in list(self.hosts):
@@ -292,14 +298,26 @@ class EngineManager:
         self.info[engine_id]["last_used"] = time.time()
         return host
 
-    def prepare_reference(self, ctx: Ctx, engine_id: str, reference_path: Path, transcript: str, language: str, cache_path: Path) -> dict[str, Any]:
+    def _after_call_error(self, engine_id: str, host: EngineHost, e: WorkerError) -> None:
+        """Keep info/hosts truthful after a failed host call: a crashed or hard-cancelled (killed) host is unloaded
+        immediately (state 'unloaded' + engine.state event) instead of lingering as 'loaded' until the idle loop."""
+        if e.code == ENGINE_CRASHED:
+            self.unload(engine_id, "crashed")
+        elif e.code == CANCELLED and (e.details or {}).get("hard_cancel"):
+            self.unload(engine_id, "cancelled")
+        elif not host.alive():
+            self.unload(engine_id, "engine process stopped")
+        elif e.code == GPU_OOM:
+            self.info[engine_id]["message"] = "GPU out of memory"
+
+    def prepare_reference(self, ctx: Ctx, engine_id: str, reference_path: Path, transcript: str, language: str, cache_path: Path,
+                          settings: dict[str, Any] | None = None) -> dict[str, Any]:
         host = self._host(ctx, engine_id)
         try:
             return host.call("engine.prepare", {"reference_path": str(reference_path), "transcript": transcript, "language": language,
-                                                "cache_path": str(cache_path)}, ctx=ctx, timeout=600)
+                                                "cache_path": str(cache_path), "settings": dict(settings or {})}, ctx=ctx, timeout=600)
         except WorkerError as e:
-            if e.code == ENGINE_CRASHED:
-                self.unload(engine_id, "crashed")
+            self._after_call_error(engine_id, host, e)
             raise
 
     def generate(self, ctx: Ctx, engine_id: str, text: str, language: str, reference_path: Path, transcript: str,
@@ -313,10 +331,7 @@ class EngineManager:
             self.info[engine_id]["last_used"] = time.time()
             return res
         except WorkerError as e:
-            if e.code == ENGINE_CRASHED:
-                self.unload(engine_id, "crashed")
-            elif e.code == "GPU_OOM":
-                self.info[engine_id]["message"] = "GPU out of memory"
+            self._after_call_error(engine_id, host, e)
             raise
 
     def health(self, engine_id: str) -> dict[str, Any]:

@@ -102,7 +102,7 @@ Paths are always absolute and must be inside the app data dir or explicitly user
 - `engine.capabilities` `{engine_id}` → `Capabilities`
 - `engine.load` **GPU** `{engine_id, model_id?}` → `{engine_id, model_id, revision, load_ms, vram_bytes?}`
 - `engine.unload` `{engine_id}` → `{ok}`
-- `engine.prepare_reference` **GPU** `{engine_id, reference_id}` → `{prompt_cache_id, path, engine_id, model_revision, fingerprint}` — engine-specific reusable prompt; regenerable cache keyed by (reference file hash, transcript, preprocessing, model revision).
+- `engine.prepare_reference` **GPU** `{engine_id, reference_id, settings?, force?}` → `{prompt_cache_id, path, engine_id, model_revision, fingerprint, reference_path, meta, prompt_settings}` — engine-specific reusable prompt; regenerable cache keyed by (reference file hash, transcript, preprocessing, model revision, and the engine's `prompt_controls` — e.g. Chatterbox `norm_loudness`, Qwen `x_vector_only_mode`; default values keep the plain key).
 - `engine.generate` **GPU** `{engine_id, reference_id, text, language, settings:{...caps.controls...}, seed?, out_dir, tag?}` → `{path, sample_rate, duration_s, seed?, elapsed_s, normalized_text, warnings:[...]}` (single segment)
 
 `Capabilities`:
@@ -144,11 +144,11 @@ The UI renders **only** what appears here.
 ### models
 - `models.list` → `{models:[{id, engine_id?, kind:"tts"|"asr", repo, revision_pinned, revision_installed?, size_bytes?, license, state, path?, error?}]}`
 - `models.download` `{model_id}` → progress (bytes) → `{model_id, path, revision, size_bytes}` (refused with `OFFLINE_BLOCKED` when offline)
-- `models.cancel_download` `{model_id}` → `{ok}`
+- `models.cancel_download` `{model_id}` → `{ok}` (the in-flight `models.download` request then ends with `CANCELLED` `{model_id, resumable:true, state}`; a later `models.download` resumes from the completed blobs)
 - `models.verify` `{model_id}` → `{ok, missing_files:[...], revision}`
 - `models.use_existing_dir` `{model_id, path}` → `{ok, revision?, warnings}`
 - `models.remove` `{model_id, confirm:true}` → `{ok}`
 
 ## Engine host protocol
-Same envelope; methods `engine.caps`, `engine.load {model_dir, device, dtype}`, `engine.unload`, `engine.prepare {reference_path, transcript, language, cache_path}`, `engine.generate {text, language, prompt_cache_path|reference_path, settings, seed, out_path}`, `engine.health`. Hosts are started with
+Same envelope; methods `engine.caps`, `engine.load {model_dir, device, dtype}`, `engine.unload`, `engine.prepare {reference_path, transcript?, language?, cache_path, settings?}` (`settings` = the engine's `prompt_controls`, e.g. Chatterbox `norm_loudness`, Qwen `x_vector_only_mode` — they are part of the prompt-cache identity), `engine.generate {text, language, reference_path?, prompt_cache_path?, transcript?, settings, seed, out_path}` (at least one of `prompt_cache_path` / `reference_path` must be usable — the adapter falls back to `reference_path` when the cache is missing, unreadable or was built with different prompt settings, and raises `INVALID_PARAMS` when neither works), `engine.health`. Hosts are started with
 `<env python> -m shadowfetch_worker.engine_host --engine <id>` and inherit `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE` from the main worker's offline setting.

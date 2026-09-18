@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ..protocol import INVALID_PARAMS, NOT_FOUND, WorkerError
+from ..protocol import ENGINE_UNAVAILABLE, INVALID_PARAMS, NOT_FOUND, WorkerError
 from ..rpc import Ctx, method
 from ..store import repo
 from ..store.db import dumps, loads, new_id
@@ -128,7 +128,10 @@ def ensure_reference_file(state: dict[str, Any], reference_row, engine_id: str) 
     entry = derived.get(engine_id) or {}
     if entry.get("fingerprint") == ref["fingerprint"] and entry.get("path") and Path(entry["path"]).exists():
         return Path(entry["path"])
-    caps = state["engines"].capabilities(engine_id)
+    engines = state.get("engines")
+    if engines is None:
+        raise WorkerError(ENGINE_UNAVAILABLE, "The engine manager is not available in this worker.", recoverable=False)
+    caps = engines.capabilities(engine_id)
     asset = db.require("assets", ref["asset_id"])
     src = asset["working_path"] or asset["original_path"]
     if not src or not Path(src).exists():

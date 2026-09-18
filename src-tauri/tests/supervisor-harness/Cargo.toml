@@ -1,0 +1,23 @@
+# Test harness for the Tauri-free parts of the shell (supervisor, paths, error type).
+# It compiles ../../src/{error,paths,worker}.rs directly, so it runs without the
+# WebKitGTK/GTK development packages the real crate needs:
+#   cargo test --manifest-path src-tauri/tests/supervisor-harness/Cargo.toml
+[package]
+name = "sfvs-supervisor-harness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+doctest = false
+
+[dependencies]
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "process", "io-util", "sync", "time", "macros", "fs"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+env_logger = "0.11"
