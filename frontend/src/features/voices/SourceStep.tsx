@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, FileAudio, FolderOpen, Mic } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, events } from "@/lib/api";
 import type { AudioImportResult, Progress } from "@/lib/protocol";
 import { cx, formatBytes, formatDbfs, formatDuration } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/Feedback";
+import { toast } from "@/store/appStore";
 import { handleError } from "@/store/appStore";
 import { Recorder } from "./Recorder";
 import type { RecorderTake } from "./recorderMachine";
@@ -49,10 +50,9 @@ export function SourceStep({ mode, onModeChange, source, onSource, recordingActi
   const [jobs, setJobs] = useState<ImportJob[]>([]);
   const [picking, setPicking] = useState(false);
 
-  const pickFiles = async () => {
+  const importPaths = async (paths: string[]) => {
     setPicking(true);
     try {
-      const paths = await api.shell.pickAudioFiles();
       let selected = source != null;
       for (const path of paths) {
         const name = path.split(/[\\/]/).pop() ?? path;
@@ -69,12 +69,33 @@ export function SourceStep({ mode, onModeChange, source, onSource, recordingActi
           setJobs((js) => js.map((j) => (j.path === path ? { ...j, error: `${we.message} (${we.code})`, progress: null } : j)));
         }
       }
-    } catch (err) {
-      handleError(err, "File dialog failed");
     } finally {
       setPicking(false);
     }
   };
+
+  const pickFiles = async () => {
+    try {
+      const paths = await api.shell.pickAudioFiles();
+      if (paths.length) await importPaths(paths);
+    } catch (err) {
+      handleError(err, "File dialog failed");
+    }
+  };
+
+  // Drag-and-drop onto the window: only WAV/MP3/FLAC files; others are ignored with a notice.
+  useEffect(() => {
+    if (mode !== "import" || recordingActive) return;
+    return events.onFileDrop((paths) => {
+      const audio = paths.filter((p) => /\.(wav|mp3|flac)$/i.test(p));
+      if (!audio.length) {
+        toast.info("Only WAV, MP3 or FLAC files can be imported.");
+        return;
+      }
+      void importPaths(audio);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, recordingActive, source]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -91,7 +112,7 @@ export function SourceStep({ mode, onModeChange, source, onSource, recordingActi
             <Button variant="primary" icon={<FolderOpen />} loading={picking} onClick={() => void pickFiles()}>
               Choose audio files…
             </Button>
-            <span className="text-[12.5px] text-muted">WAV, MP3 or FLAC, up to 2 GB. Drag-and-drop is not wired in this shell version — use the dialog.</span>
+            <span className="text-[12.5px] text-muted">WAV, MP3 or FLAC, up to 2 GB. Use the dialog or drop files anywhere on the window.</span>
           </div>
           {jobs.length > 0 && (
             <ul className="flex flex-col gap-2" aria-label="Imported files">

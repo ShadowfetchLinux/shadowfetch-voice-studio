@@ -285,6 +285,34 @@ export const events = {
     return subscribe(statusHandlers, cb);
   },
 
+  /**
+   * Files dropped onto the app window (Tauri `tauri://drag-drop`; payload `{paths, position}`).
+   * Paths are OS-provided absolute paths of files the user chose to drop; the worker re-validates them.
+   * Returns an unsubscribe function. Does nothing in the browser preview.
+   */
+  onFileDrop(cb: (paths: string[]) => void): () => void {
+    let active = true;
+    let stop: (() => void) | null = null;
+    getTransport()
+      .then((t) => {
+        if (t.kind !== "tauri") return;
+        return t.listen<{ paths?: string[] }>("tauri://drag-drop", (payload) => {
+          const paths = Array.isArray(payload?.paths) ? payload.paths.filter((x): x is string => typeof x === "string") : [];
+          if (active && paths.length) cb(paths);
+        });
+      })
+      .then((unlisten) => {
+        if (!unlisten) return;
+        if (active) stop = unlisten;
+        else unlisten();
+      })
+      .catch((err) => console.error("drag-drop listener failed", err));
+    return () => {
+      active = false;
+      stop?.();
+    };
+  },
+
   /** Lines streamed by `runtime_bootstrap` (`runtime://log`). */
   onRuntimeLog(cb: Handler<RuntimeLogLine>): () => void {
     ensureShellListener("log", "runtime://log", (l) => {

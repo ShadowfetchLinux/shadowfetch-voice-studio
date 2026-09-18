@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Archive, ArchiveRestore, AudioLines, Copy, Download, FolderOpen, Pencil, Save, Sparkles, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import type { ExportRecord, PeakPair, Project, ProjectDetail } from "@/lib/protocol";
@@ -28,6 +28,17 @@ export interface ProjectPreviewProps {
 /** Right column: master preview, notes/tags, actions and the exports of one project. */
 export function ProjectPreview({ project, tagSuggestions, onChanged, onDeleted }: ProjectPreviewProps) {
   const navigate = useAppStore((s) => s.navigate);
+  const routeParams = useAppStore((s) => s.params);
+  // Create → "Export" hands off with navigate("library", {projectId, section: "export"}): open the dialog once.
+  const handledExportRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (routeParams.section !== "export" || !project || routeParams.projectId !== project.id) return;
+    const key = `${project.id}:${project.master_path ?? ""}`;
+    if (handledExportRef.current === key) return;
+    handledExportRef.current = key;
+    if (project.master_path) setExporting(true);
+    else toast.info("No master yet", "Assemble the project in Create before exporting.");
+  }, [routeParams.section, routeParams.projectId, project]);
   const engines = useAppStore((s) => s.engines);
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
