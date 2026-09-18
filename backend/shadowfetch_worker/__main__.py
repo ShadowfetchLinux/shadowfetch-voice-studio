@@ -48,12 +48,27 @@ def main(argv: list[str] | None = None) -> int:
     server.state.update({"paths": paths, "settings": settings, "runtime": Runtime(paths), "db": Database(paths.db_file)})
 
     from . import jobs  # noqa: F401  (registers methods)
+    shutdown_hooks = []
     try:
         from .engines.manager import EngineManager
         server.state["engines"] = EngineManager(server)
-        server.on_shutdown = server.state["engines"].shutdown_all
+        shutdown_hooks.append(server.state["engines"].shutdown_all)
     except ImportError as e:
         log.warning("engine manager unavailable: %s", e)
+    try:
+        from .jobs.record import shutdown_sessions
+        shutdown_hooks.append(lambda: shutdown_sessions(server.state))   # finalize an in-flight recording's WAV header
+    except ImportError:
+        pass
+
+    def on_shutdown() -> None:
+        for hook in shutdown_hooks:
+            try:
+                hook()
+            except Exception:  # noqa: BLE001
+                log.exception("shutdown hook failed")
+
+    server.on_shutdown = on_shutdown
     try:
         server.serve_forever()
     except KeyboardInterrupt:

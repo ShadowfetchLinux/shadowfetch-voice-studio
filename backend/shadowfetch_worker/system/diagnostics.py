@@ -93,7 +93,26 @@ def audio_devices() -> dict[str, Any]:
     try:
         import sounddevice as sd
     except Exception as e:  # noqa: BLE001
-        return {"inputs": [], "outputs": [], "error": f"sounddevice unavailable: {e}"}
+        # No PortAudio library: report what the ffmpeg/PulseAudio recording fallback can see, and say why.
+        out: dict[str, Any] = {"inputs": [], "outputs": [], "hostapis": [], "backend": "ffmpeg-pulse",
+                               "error": f"sounddevice unavailable ({e}); using the FFmpeg/PulseAudio fallback for recording"}
+        try:
+            from ..record.backends import list_input_devices
+            devs = list_input_devices()
+            out["inputs"] = devs.get("inputs", [])
+            out["default_input"] = devs.get("default_input")
+            out["backend"] = devs.get("backend", "ffmpeg-pulse")
+        except Exception as e2:  # noqa: BLE001
+            out["error"] += f"; device listing failed: {e2}"
+        try:
+            import subprocess
+            sinks = subprocess.run(["pactl", "list", "sinks", "short"], capture_output=True, text=True, timeout=5).stdout
+            out["outputs"] = [{"index": i, "name": ln.split("\t")[1], "hostapi": "PulseAudio", "max_input_channels": 0,
+                               "max_output_channels": 2, "default_samplerate": 48000}
+                              for i, ln in enumerate(l for l in sinks.splitlines() if "\t" in l)]
+        except Exception:  # noqa: BLE001
+            pass
+        return out
     try:
         devs = sd.query_devices()
         apis = sd.query_hostapis()
