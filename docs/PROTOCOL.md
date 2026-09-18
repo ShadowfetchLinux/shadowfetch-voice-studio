@@ -89,7 +89,8 @@ Paths are always absolute and must be inside the app data dir or explicitly user
 ### record
 - `record.devices` → `{inputs:[Device], default_input}`
 - `record.start` `{device_index?, sample_rate?:48000, channels?:1, subtype?:"PCM_24", session_name?}` → `{session_id, path, negotiated:{sample_rate, channels, dtype, subtype, hostapi, device_name, latency_s}, notes:[...]}`
-- `record.pause` / `record.resume` / `record.stop` `{session_id}` → `{session_id, path, duration_s, stats, negotiated}`
+- `record.pause` / `record.resume` `{session_id}` → `{session_id, state:"paused"|"recording", elapsed_s}`
+- `record.stop` `{session_id}` → `{session_id, path, duration_s, stats, negotiated, notes, asset_id, recording_id, working_path}` (registers the recording as a `reference` asset; a stopped recording can no longer be discarded through the session — delete it from the library)
 - `record.discard` `{session_id}` → `{ok}`
 - `record.scripts` → `{scripts:[{id,title,style,text,approx_seconds}]}` (the three guided reading scripts)
 
@@ -127,8 +128,10 @@ The UI renders **only** what appears here.
 ### voices / projects / library (persistence)
 - `voices.create` `{name, tags, language, rights_confirmed:true, asset_id, trim:{start_s,end_s}, transcript, engine_id?, processing:[...]}` → `Voice`
 - `voices.list` / `voices.get {id}` / `voices.update {id, patch}` / `voices.delete {id, force?}` (warns with `details.used_by_projects` unless force)
-- `voices.add_reference {voice_id, asset_id, trim, transcript}` → `Reference` ; `voices.select_reference {voice_id, reference_id}`
+- `voices.add_reference {voice_id, asset_id, trim, transcript, processing?, label?, select?, engine_id?}` → `Reference` ; `voices.select_reference {voice_id, reference_id}` ; `voices.update_reference {reference_id, patch:{transcript?, transcript_confirmed?, label?}}` → `Reference` (a transcript edit invalidates derived files and prompt caches)
+  `Reference` rows carry `trim`, `fingerprint`, `derived` (per engine) and an `asset` summary `{id, kind, source, original_name, original_path, working_path, duration_s, sample_rate, channels}` so the UI can re-transcribe. When `engine_id` is given on create/add, the trim is validated against that engine's reference window (`min_seconds` is exclusive).
 - `projects.create` `{name, voice_id?, reference_id?, engine_id?, folder?}` → `Project`
+- `projects.get {id}` → `{project, script:{text, version, updated_at}|null, segments:[{id, index, paragraph, text, normalized_text, substitutions, char_count, selected_take_id, takes:[Take]}], exports:[...]}`
 - `projects.list {query?, tags?, favorite?, archived?, sort?}` / `projects.get {id}` (includes script, segments, takes, exports) / `projects.update {id, patch}` / `projects.duplicate {id}` / `projects.archive {id, archived}` / `projects.delete {id, confirm:true}`
 - `projects.save_script {id, text}` → `{script_version}` (autosave; keeps versions)
 - `projects.select_take {id, segment_index, take_id}`
@@ -137,7 +140,7 @@ The UI renders **only** what appears here.
 - `backup.export {project_id, out_path}` → `{path, size_bytes}` ; `backup.import {path}` → `{project_id}` (zip; manifest.json + assets; traversal + size guarded)
 
 ### export
-- `export.render` `{project_id, master_path?, format:"wav"|"flac"|"mp3", out_path, wav_bit_depth?:16|24|32f, sample_rate?:"native"|48000, mp3_bitrate_kbps?:128|192|256|320, mp3_vbr_quality?:0-9, loudness?:{target_id:"ebu-r128-podcast-16"|"streaming-14"|"broadcast-23"}, ai_metadata?:true}` → `{path, size_bytes, probe, loudness_measured?:{integrated_lufs, true_peak_dbtp, lra}, collision_renamed?:bool}` (atomic write; never overwrites the master)
+- `export.render` `{project_id, master_path?, format:"wav"|"flac"|"mp3", out_path, wav_bit_depth?:16|24|32f, sample_rate?:"native"|48000, mp3_bitrate_kbps?:128|192|256|320, mp3_vbr_quality?:0-9, loudness?:{target_id:"podcast-16"|"streaming-14"|"broadcast-r128-23"}, ai_metadata?:true}` → `{path, size_bytes, probe, loudness_measured?:{integrated_lufs, true_peak_dbtp, lra}, collision_renamed?:bool}` (atomic write; never overwrites the master)
 - `export.loudness_targets` → `{targets:[{id,label,integrated_lufs,true_peak_dbtp,lra,description}]}`
 - `export.open_folder {path}` → handled by the shell (opener plugin), not the worker.
 
@@ -147,7 +150,8 @@ The UI renders **only** what appears here.
 - `models.cancel_download` `{model_id}` → `{ok}` (the in-flight `models.download` request then ends with `CANCELLED` `{model_id, resumable:true, state}`; a later `models.download` resumes from the completed blobs)
 - `models.verify` `{model_id}` → `{ok, missing_files:[...], revision}`
 - `models.use_existing_dir` `{model_id, path}` → `{ok, revision?, warnings}`
-- `models.remove` `{model_id, confirm:true}` → `{ok}`
+- `models.remove` `{model_id, confirm:true}` → `{ok, deleted, freed_bytes}` (only the managed cache directory; a custom directory is merely unlinked)
+- `models.state` `{model_id}` → one entry of `models.list`; `engine.health {engine_id}`; `transcribe.unload` → `{ok}` (extra methods beyond the original draft)
 
 ## Engine host protocol
 Same envelope; methods `engine.caps`, `engine.load {model_dir, device, dtype}`, `engine.unload`, `engine.prepare {reference_path, transcript?, language?, cache_path, settings?}` (`settings` = the engine's `prompt_controls`, e.g. Chatterbox `norm_loudness`, Qwen `x_vector_only_mode` — they are part of the prompt-cache identity), `engine.generate {text, language, reference_path?, prompt_cache_path?, transcript?, settings, seed, out_path}` (at least one of `prompt_cache_path` / `reference_path` must be usable — the adapter falls back to `reference_path` when the cache is missing, unreadable or was built with different prompt settings, and raises `INVALID_PARAMS` when neither works), `engine.health`. Hosts are started with
