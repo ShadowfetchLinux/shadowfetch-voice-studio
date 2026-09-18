@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Captions, CheckCircle2, Pencil, Plus } from "lucide-react";
+import { Captions, CheckCircle2, Database, Pencil, Plus } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Progress, Reference, Voice } from "@/lib/protocol";
 import { cx, formatDuration, formatRelative, formatTime } from "@/lib/format";
@@ -27,6 +27,22 @@ export function referenceAudioPath(r: Reference): string | null {
 export function VoiceDetail({ voice, onAddReference, onChanged }: VoiceDetailProps) {
   const settings = useAppStore((s) => s.settings);
   const refs = voice.references ?? [];
+  const [exporting, setExporting] = useState(false);
+  const exportDataset = async () => {
+    try {
+      const dir = await api.shell.pickDirectory();
+      if (!dir) return;
+      setExporting(true);
+      const res = await api.request("dataset.export", { voice_id: voice.id, out_dir: dir });
+      const skipped = res.skipped.length ? ` · ${res.skipped.length} skipped (unreviewed transcript or out of range)` : "";
+      toast.success(`Dataset exported: ${res.samples} utterance${res.samples === 1 ? "" : "s"}, ${Math.round(res.total_seconds)} s`, `${res.path}${skipped}. See docs/FINETUNING.md — training does not fit in 16 GB VRAM and is not run by the app.`);
+      void api.shell.revealPath(res.jsonl).catch(() => undefined);
+    } catch (err) {
+      handleError(err, "Dataset export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
   const [editing, setEditing] = useState<Reference | null>(null);
   const [text, setText] = useState("");
   const [reviewed, setReviewed] = useState(false);
@@ -83,9 +99,14 @@ export function VoiceDetail({ voice, onAddReference, onChanged }: VoiceDetailPro
       title={voice.name}
       description={`${voice.language.toUpperCase()} · ${refs.length} reference variant${refs.length === 1 ? "" : "s"} · updated ${formatRelative(voice.updated_at)}${voice.notes ? ` · ${voice.notes}` : ""}`}
       actions={
-        <Button size="sm" variant="primary" icon={<Plus />} onClick={onAddReference}>
-          Add reference
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="ghost" icon={<Database />} loading={exporting} disabled={refs.length === 0} onClick={() => void exportDataset()} title="Advanced: write this voice's reviewed recordings as a Qwen3-TTS fine-tuning dataset (audio + JSONL). No training happens in the app.">
+            Export training dataset
+          </Button>
+          <Button size="sm" variant="primary" icon={<Plus />} onClick={onAddReference}>
+            Add reference
+          </Button>
+        </div>
       }
     >
       {refs.length === 0 ? (

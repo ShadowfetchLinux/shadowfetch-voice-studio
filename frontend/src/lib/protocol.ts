@@ -870,6 +870,23 @@ export interface VoiceDeleteParams {
   force?: boolean;
 }
 
+/** Advanced: export a voice's reviewed recordings as a Qwen3-TTS fine-tuning dataset (data only; no training). */
+export interface DatasetExportParams {
+  voice_id: string;
+  out_dir: string;
+  reference_id?: string;
+  min_seconds?: number;
+  max_seconds?: number;
+}
+export interface DatasetExportResult {
+  path: string;
+  jsonl: string;
+  samples: number;
+  skipped: Array<{ reference_id: string; reason: string }>;
+  reference: string;
+  total_seconds: number;
+}
+
 export interface AddReferenceParams {
   voice_id: string;
   asset_id: string;
@@ -1232,6 +1249,7 @@ export interface Methods {
   "voices.update": { params: VoiceUpdateParams; result: Voice };
   "voices.delete": { params: VoiceDeleteParams; result: { ok: boolean } };
   "voices.add_reference": { params: AddReferenceParams; result: Reference };
+  "dataset.export": { params: DatasetExportParams; result: DatasetExportResult };
   "voices.select_reference": { params: SelectReferenceParams; result: Voice | { ok: boolean } };
 
   "projects.create": { params: ProjectCreateParams; result: Project };
