@@ -43,3 +43,6 @@ data/
 .idea/
 .vscode/
 *.swp
+
+# machine-specific bootstrap stamp
+backend/runtime.json

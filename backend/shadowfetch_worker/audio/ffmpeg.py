@@ -153,11 +153,9 @@ def probe(path: Path) -> dict[str, Any]:
     return info
 
 
-def soxr_args(sample_rate: int | None) -> list[str]:
-    """ffmpeg args that resample with the soxr resampler (high precision) — empty when no resampling is requested."""
-    if not sample_rate:
-        return []
-    return ["-af", f"aresample=resampler=soxr:precision=28:osr={int(sample_rate)}", "-ar", str(int(sample_rate))]
+def soxr_filter(sample_rate: int) -> str:
+    """The aresample filter string that resamples to `sample_rate` with soxr at its highest precision."""
+    return f"aresample=resampler=soxr:precision=28:osr={int(sample_rate)}"
 
 
 def decode_to_wav(src: Path, dst: Path, sample_rate: int | None = None, channels: int = 1, sample_fmt: str = "f32",
@@ -177,7 +175,7 @@ def decode_to_wav(src: Path, dst: Path, sample_rate: int | None = None, channels
     filters = list(extra_filters or [])
     args: list[str] = ["-y", "-i", str(src), "-vn", "-sn", "-dn", "-map", "0:a:0", "-map_metadata", "-1", "-ac", str(int(channels))]
     if sample_rate:
-        filters.append(f"aresample=resampler=soxr:precision=28:osr={int(sample_rate)}")
+        filters.append(soxr_filter(sample_rate))
         args += ["-ar", str(int(sample_rate))]
     if filters:
         args += ["-af", ",".join(filters)]

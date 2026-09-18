@@ -109,7 +109,7 @@ class SoundDeviceBackend(CaptureBackend):
             if status and status.input_overflow:
                 self.overflows += 1
             try:
-                on_block(np.ascontiguousarray(indata[:, 0], dtype=np.float32).copy())
+                on_block(indata[:, 0].astype(np.float32, copy=True))
             except Exception as exc:  # noqa: BLE001 — a failing consumer must not crash the audio thread
                 log.exception("record block consumer failed")
                 self._fail(exc)
@@ -262,6 +262,8 @@ class FfmpegPulseBackend(CaptureBackend):
         self.source_info = source_info
         self._proc: subprocess.Popen | None = None
         self._thread: threading.Thread | None = None
+        self._start_decided = threading.Event()   # start() decides who reports an early ffmpeg death
+        self._started_ok = False
 
     def start(self, on_block: BlockCallback, on_error: ErrorCallback) -> dict[str, Any]:
         exe = shutil.which("ffmpeg")
@@ -279,10 +281,14 @@ class FfmpegPulseBackend(CaptureBackend):
         deadline = time.monotonic() + self.START_GRACE_S
         while time.monotonic() < deadline:
             if self._proc.poll() is not None:
+                self._stopping.set()
+                self._start_decided.set()
                 self._thread.join(timeout=2)
                 raise WorkerError(DEVICE_UNAVAILABLE, f"ffmpeg could not open Pulse source {self.source!r}: {self._stderr_tail()}",
                                   {"source": self.source, "returncode": self._proc.returncode})
             time.sleep(0.02)
+        self._started_ok = True
+        self._start_decided.set()
         info = self.source_info
         notes: list[str] = []
         if info and info.sample_rate and info.sample_rate != self.sample_rate:
@@ -316,11 +322,13 @@ class FfmpegPulseBackend(CaptureBackend):
                 self._stopping.set()
                 on_error(exc)
             return
-        if not self._stopping.is_set():
-            self._stopping.set()
-            rc = proc.wait(timeout=5) if proc.poll() is None else proc.returncode
-            on_error(WorkerError(DEVICE_UNAVAILABLE, f"ffmpeg capture from {self.source!r} ended unexpectedly (exit {rc}): "
-                                 f"{self._stderr_tail()}", {"source": self.source, "returncode": rc}))
+        self._start_decided.wait(self.START_GRACE_S + 2)
+        if not self._started_ok or self._stopping.is_set():
+            return                                   # start() reports an early death; stop() asked for the EOF
+        self._stopping.set()
+        rc = proc.wait(timeout=5) if proc.poll() is None else proc.returncode
+        on_error(WorkerError(DEVICE_UNAVAILABLE, f"ffmpeg capture from {self.source!r} ended unexpectedly (exit {rc}): "
+                             f"{self._stderr_tail()}", {"source": self.source, "returncode": rc}))
 
     def _stderr_tail(self) -> str:
         proc = self._proc

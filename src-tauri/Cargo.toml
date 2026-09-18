@@ -1,0 +1,36 @@
+[package]
+name = "shadowfetch-voice-studio"
+version = "0.1.0"
+description = "Shadowfetch Voice Studio - private, local voice cloning desktop app"
+authors = ["Shadowfetch"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77.2"
+
+# The binary is `shadowfetch-voice-studio` (src/main.rs); the library carries the
+# actual app so Tauri's mobile entry point / tests can reuse it.
+[lib]
+name = "shadowfetch_voice_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# tauri 2.x stable (2.11.5 at the time of writing; 3.0.0-alpha exists but is not matched by "2")
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-log = "2"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "process", "io-util", "sync", "time", "macros", "fs"] }
+uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

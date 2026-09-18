@@ -1,0 +1,206 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens for Shadowfetch Voice Studio.
+ * Spacing: Tailwind's default 4 px base — use even steps (2 = 8 px, 4 = 16 px, 6 = 24 px, 8 = 32 px)
+ * so the layout stays on an 8-px grid. Controls are ≥ 40 px tall. Panels 12 px radius, controls 8 px.
+ */
+@theme {
+  --font-sans: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Menlo, monospace;
+
+  --color-sidebar: #1f2327;
+  --color-sidebar-hover: #2a2f35;
+  --color-sidebar-active: #343a41;
+  --color-sidebar-text: #d7dbe0;
+  --color-sidebar-muted: #9aa3ad;
+  --color-sidebar-border: #2e343a;
+
+  --color-work: #f7f5f1;
+  --color-panel: #ffffff;
+  --color-panel-alt: #faf9f6;
+  --color-border: #e6e2dc;
+  --color-border-strong: #cfc9c0;
+
+  --color-text: #1f2328;
+  --color-muted: #656d7a; /* ≥ 4.5:1 on both work and panel backgrounds */
+
+  --color-accent: #2f6fe4;
+  --color-accent-hover: #2559c4;
+  --color-accent-soft: #e8f0fd;
+  --color-accent-text: #ffffff;
+
+  --color-success: #1a7f4b;
+  --color-success-soft: #e3f5ea;
+  --color-warn: #b45309;
+  --color-warn-soft: #fdf1df;
+  --color-danger: #c62828;
+  --color-danger-hover: #a51f1f;
+  --color-danger-soft: #fde8e8;
+
+  --radius-panel: 12px;
+  --radius-control: 8px;
+
+  --shadow-panel: 0 1px 2px rgb(31 35 40 / 0.04), 0 1px 3px rgb(31 35 40 / 0.06);
+  --shadow-pop: 0 8px 24px rgb(31 35 40 / 0.14), 0 2px 6px rgb(31 35 40 / 0.08);
+
+  --control-height: 40px;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--color-work);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
+  }
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+  /* Visible focus for keyboard users only */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-control);
+  }
+  ::selection {
+    background: var(--color-accent-soft);
+  }
+  h1,
+  h2,
+  h3 {
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  h1 {
+    font-size: 22px;
+  }
+  h2 {
+    font-size: 17px;
+  }
+  h3 {
+    font-size: 15px;
+  }
+  p {
+    margin: 0;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+  code,
+  kbd,
+  pre {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  /* Custom scrollbars stay subtle on the warm background */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border-strong);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  .control {
+    height: var(--control-height);
+    min-height: var(--control-height);
+    border-radius: var(--radius-control);
+  }
+  .panel {
+    background: var(--color-panel);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-panel);
+    box-shadow: var(--shadow-panel);
+  }
+  .field-input {
+    width: 100%;
+    background: var(--color-panel);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-control);
+    padding: 0 12px;
+    color: var(--color-text);
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .field-input:hover:not(:disabled) {
+    border-color: #b8b1a7;
+  }
+  .field-input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px var(--color-accent-soft);
+  }
+  .field-input:disabled {
+    background: var(--color-panel-alt);
+    color: var(--color-muted);
+    cursor: not-allowed;
+  }
+  .field-input[aria-invalid="true"] {
+    border-color: var(--color-danger);
+  }
+}
+
+@keyframes sfvs-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes sfvs-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+@keyframes sfvs-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes sfvs-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes sfvs-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
