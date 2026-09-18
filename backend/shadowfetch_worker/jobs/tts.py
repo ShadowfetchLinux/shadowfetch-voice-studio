@@ -137,31 +137,23 @@ def _language(caps: Capabilities, requested: str | None, fallback: str) -> str:
     return lang
 
 
-def prepare_engine(ctx: Ctx, st: dict[str, Any], engine_id: str, caps: Capabilities, ref, language: str) -> dict[str, Any]:
+def prepare_engine(ctx: Ctx, st: dict[str, Any], engine_id: str, caps: Capabilities, ref, language: str,
+                   controls: dict[str, Any] | None = None) -> dict[str, Any]:
     """Derived reference wav + loaded engine + (when supported) a reusable prompt from prompt_cache.
+    Delegates prompt identity/caching to jobs.engines._prompt_cache_for so the Create page, engine.prepare_reference and
+    compare-engines all share one cache keyed by (reference, engine, revision, fingerprint, prompt-shaping controls).
     Returns {reference_path, model_revision, prompt_path, prompt_cache_id}."""
-    db, paths = st["db"], st["paths"]
     engines = _engines(st)
     ref_path = ensure_reference_file(st, ref, engine_id)
     loaded = engines.ensure_loaded(ctx, engine_id)
     revision = str(loaded.get("revision") or "")
     prompt_path, cache_id = None, None
     if caps.supports_reusable_prompt:
-        row = db.one("SELECT * FROM prompt_cache WHERE reference_id = ? AND engine_id = ? AND model_revision = ? AND fingerprint = ? "
-                     "ORDER BY created_at DESC LIMIT 1", (ref["id"], engine_id, revision, ref["fingerprint"]))
-        if row is not None and Path(row["path"]).exists():
-            prompt_path, cache_id = Path(row["path"]), row["id"]
-        else:
-            if row is not None:
-                with db.tx() as c:
-                    c.execute("DELETE FROM prompt_cache WHERE id = ?", (row["id"],))
-            cache_path = paths.prompts / f"{ref['id']}-{engine_id}-{safe_filename(revision or 'unknown')}.bin"
-            ctx.progress("prepare", f"Preparing the voice reference for {caps.name}")
-            res = engines.prepare_reference(ctx, engine_id, ref_path, ref["transcript"], language, cache_path) or {}
-            prompt_path = Path(res.get("path") or cache_path)
-            cache_id = new_id("pc")
-            db.insert("prompt_cache", {"id": cache_id, "reference_id": ref["id"], "engine_id": engine_id, "model_revision": revision,
-                                       "fingerprint": ref["fingerprint"], "path": str(prompt_path)})
+        from .engines import _prompt_cache_for
+        row = dict(ref)
+        row.setdefault("language", language)
+        rec = _prompt_cache_for(ctx, engine_id, row, ref_path, settings=controls or {})
+        prompt_path, cache_id = Path(rec["path"]), rec["id"]
     return {"reference_path": ref_path, "model_revision": revision, "prompt_path": prompt_path, "prompt_cache_id": cache_id}
 
 
@@ -284,7 +276,7 @@ def generate(ctx: Ctx, p: GenerateParams) -> dict[str, Any]:
     settings.patch({"engine_settings": {**settings.value.engine_settings, engine_id: controls}})
 
     t0 = time.time()
-    prep = prepare_engine(ctx, st, engine_id, caps, ref, language)
+    prep = prepare_engine(ctx, st, engine_id, caps, ref, language, controls)
     engines = _engines(st)
     completed: list[dict[str, Any]] = []
     n = len(targets)
@@ -305,6 +297,11 @@ def generate(ctx: Ctx, p: GenerateParams) -> dict[str, Any]:
             if isinstance(e, CancelledError):
                 raise CancelledError(details) from e
             raise WorkerError(e.code, e.message, details, e.recoverable) from e
+        except Exception as e:  # noqa: BLE001  (db/disk errors: keep the finished takes visible to the UI)
+            from ..rpc import classify_exception
+            err = classify_exception(e)
+            raise WorkerError(err.code, err.message, {**err.details, "completed": completed, "failed_segment": seg["idx"],
+                                                      "engine_id": engine_id}, err.recoverable) from e
     repo.touch(db, "projects", p.project_id)
     return {"takes": completed, "skipped": skipped, "elapsed_s": round(time.time() - t0, 2), "engine_id": engine_id,
             "reference_id": ref["id"], "model_revision": prep["model_revision"], "prompt_cache_id": prep["prompt_cache_id"],
@@ -339,10 +336,9 @@ def assemble(ctx: Ctx, p: AssembleParams) -> dict[str, Any]:
     pdir = repo.project_dir(paths, p.project_id)
     pdir.mkdir(parents=True, exist_ok=True)
     final, tmp = pdir / "master.wav", pdir / "master.tmp.wav"
-    ctx.progress("assemble", f"Assembling {len(takes_in)} takes", 0, len(takes_in))
     from ..audio import edit
     info = dict(edit.assemble([{"path": t["path"], "paragraph": t["paragraph"], "index": t["index"]} for t in takes_in], tmp,
-                              sentence_ms, paragraph_ms) or {})
+                              sentence_ms, paragraph_ms, ctx=ctx) or {})
     os.replace(tmp, final)
     master = {**info, "path": str(final), "segments_used": len(takes_in), "take_ids": [t["take_id"] for t in takes_in],
               "sentence_pause_ms": sentence_ms, "paragraph_pause_ms": paragraph_ms, "plan_version": row["plan_version"],
@@ -377,7 +373,7 @@ def compare_engines(ctx: Ctx, p: CompareParams) -> dict[str, Any]:
             controls = validate_controls(caps, p.settings.get(engine_id, {}))
             language = _language(caps, p.language, proj["language"])
             ctx.progress("compare", f"Generating with {caps.name} ({i} of {n})", i, n, detail={"engine_id": engine_id})
-            prep = prepare_engine(ctx, st, engine_id, caps, ref, language)
+            prep = prepare_engine(ctx, st, engine_id, caps, ref, language, p.settings.get(engine_id) or {})
             take_id = new_id("take")
             out = repo.project_dir(paths, p.project_id) / "segments" / seg["id"] / f"{take_id}.wav"
             out.parent.mkdir(parents=True, exist_ok=True)

@@ -77,6 +77,7 @@ class AddReference(BaseModel):
     processing: list[dict[str, Any]] = Field(default_factory=list)
     label: str | None = None
     select: bool = False
+    engine_id: str | None = None
 
 
 class SelectReference(BaseModel):
@@ -104,6 +105,9 @@ def _insert_reference(db, voice_id: str, asset, trim: Trim, transcript: str, pro
     if not (transcript or "").strip():
         raise WorkerError(INVALID_PARAMS, "A transcript of the reference clip is required (type it or run transcription).")
     _validate_trim(asset, trim)
+    from ..audio import edit
+    if hasattr(edit, "parse_steps"):
+        edit.parse_steps([x for x in (processing or []) if isinstance(x, dict) and x.get("op")])   # INVALID_PARAMS on unknown ops
     ref_id = new_id("ref")
     fp = repo.reference_fingerprint(asset["sha256"], trim.start_s, trim.end_s, transcript, processing)
     db.insert("voice_references", {
@@ -112,6 +116,24 @@ def _insert_reference(db, voice_id: str, asset, trim: Trim, transcript: str, pro
         "transcript_confirmed": int(bool(transcript_confirmed)), "asr_model": asr_model, "processing_json": dumps(processing),
         "fingerprint": fp, "derived_json": "{}"})
     return ref_id
+
+
+def _validate_against_engine(state: dict[str, Any], engine_id: str | None, trim: Trim) -> None:
+    """When the user names a target engine, reject references outside its declared reference window at save time."""
+    engines = state.get("engines")
+    if not engine_id or engines is None:
+        return
+    try:
+        req = engines.capabilities(engine_id).reference
+    except WorkerError:
+        return
+    dur = float(trim.end_s) - float(trim.start_s)
+    if dur <= req.min_seconds:
+        raise WorkerError(INVALID_PARAMS, f"This engine needs more than {req.min_seconds:g} s of reference audio (selected {dur:.2f} s).",
+                          {"min_seconds": req.min_seconds, "max_seconds": req.max_seconds, "duration_s": dur})
+    if dur > req.max_seconds:
+        raise WorkerError(INVALID_PARAMS, f"This engine uses at most {req.max_seconds:g} s of reference audio (selected {dur:.2f} s); "
+                          f"shorten the selection.", {"min_seconds": req.min_seconds, "max_seconds": req.max_seconds, "duration_s": dur})
 
 
 def _voice(ctx: Ctx, voice_id: str) -> dict[str, Any]:
@@ -139,10 +161,24 @@ def ensure_reference_file(state: dict[str, Any], reference_row, engine_id: str) 
     dst = repo.reference_dir(paths, ref["voice_id"], ref["id"]) / f"reference.{engine_id}.wav"
     dst.parent.mkdir(parents=True, exist_ok=True)
     from ..audio import edit
-    info = edit.prepare_reference(Path(src), dst, caps.reference.sample_rate, channels=caps.reference.channels,
-                                  start_s=ref["start_s"], end_s=ref["end_s"],
-                                  normalize_peak_dbfs=repo.normalize_peak_from(loads(ref.get("processing_json"), [])))
-    derived[engine_id] = {**(info or {}), "path": str(dst), "fingerprint": ref["fingerprint"],
+    # The stored processing list (normalize / trim_silence / highpass / gain) is part of the reference fingerprint and is
+    # what the user auditioned with audio.preview_processing, so the derived engine file must apply exactly those steps.
+    steps = [dict(x) for x in (loads(ref.get("processing_json"), []) or []) if isinstance(x, dict) and x.get("op")]
+    if hasattr(edit, "parse_steps"):
+        edit.parse_steps(steps)
+    if steps and hasattr(edit, "apply_processing"):
+        tmp = dst.with_name(dst.stem + ".raw.tmp.wav")
+        edit.prepare_reference(Path(src), tmp, caps.reference.sample_rate, channels=caps.reference.channels,
+                               start_s=ref["start_s"], end_s=ref["end_s"], normalize_peak_dbfs=None)
+        try:
+            info = edit.apply_processing(tmp, dst, steps, subtype="PCM_24")
+        finally:
+            tmp.unlink(missing_ok=True)
+    else:
+        info = edit.prepare_reference(Path(src), dst, caps.reference.sample_rate, channels=caps.reference.channels,
+                                      start_s=ref["start_s"], end_s=ref["end_s"],
+                                      normalize_peak_dbfs=repo.normalize_peak_from(steps) if steps else None)
+    derived[engine_id] = {**(info or {}), "path": str(dst), "fingerprint": ref["fingerprint"], "processing": steps,
                           "sample_rate": (info or {}).get("sample_rate", caps.reference.sample_rate),
                           "channels": (info or {}).get("channels", caps.reference.channels)}
     db.update("voice_references", ref["id"], {"derived_json": dumps(derived)}, touch=False)
@@ -166,6 +202,7 @@ def create(ctx: Ctx, p: VoiceCreate) -> dict[str, Any]:
         raise WorkerError(INVALID_PARAMS, "Please confirm that you have the rights and consent to clone this voice "
                           "(rights_confirmed must be true).", {"field": "rights_confirmed"})
     asset = db.require("assets", p.asset_id)
+    _validate_against_engine(st, p.engine_id, p.trim)
     voice_id = new_id("voice")
     db.insert("voices", {"id": voice_id, "name": p.name.strip(), "tags_json": dumps(p.tags), "language": p.language,
                          "rights_confirmed": 1, "rights_note": p.rights_note, "notes": p.notes})
@@ -257,13 +294,14 @@ def add_reference(ctx: Ctx, p: AddReference) -> dict[str, Any]:
     db = S(ctx)["db"]
     voice = db.require("voices", p.voice_id)
     asset = db.require("assets", p.asset_id)
+    _validate_against_engine(S(ctx), p.engine_id, p.trim)
     ref_id = _insert_reference(db, p.voice_id, asset, p.trim, p.transcript, p.processing, p.label, p.transcript_source,
                                p.transcript_confirmed, p.asr_model)
     if p.select or not voice["selected_reference_id"]:
         db.update("voices", p.voice_id, {"selected_reference_id": ref_id})
     else:
         repo.touch(db, "voices", p.voice_id)
-    return repo.reference_dict(db.require("voice_references", ref_id))
+    return repo.reference_dict(db.require("voice_references", ref_id), db)
 
 
 @method("voices.select_reference", params=SelectReference)

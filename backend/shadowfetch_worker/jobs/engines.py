@@ -161,11 +161,11 @@ def _prompt_cache_for(ctx: Ctx, engine_id: str, row: dict[str, Any], reference_f
         raise WorkerError(INVALID_PARAMS, f"{engine_id} does not support reusable prompts", recoverable=False)
     needs_transcript = caps.reference.needs_transcript and not ps.get("x_vector_only_mode", False)
     if needs_transcript and not (row.get("transcript") or "").strip():
-        raise WorkerError(INVALID_PARAMS, f"{ENGINES[engine_id]['name']} needs the reference transcript. Transcribe or type it first.",
+        raise WorkerError(INVALID_PARAMS, f"{caps.name} needs the reference transcript. Transcribe or type it first.",
                           {"reference_id": row["id"]}, True)
     name = f"{safe_filename(row['id'])}-{safe_filename(engine_id)}-{safe_filename(str(revision))[:40]}" + (f"-{suffix}" if suffix else "")
     cache_path = paths.prompts / f"{name}.pt"
-    ctx.progress("prepare", f"Preparing the voice prompt for {ENGINES[engine_id]['name']}")
+    ctx.progress("prepare", f"Preparing the voice prompt for {caps.name}")
     res = em.prepare_reference(ctx, engine_id, reference_file, row.get("transcript") or "", row.get("language") or "auto", cache_path,
                                settings=ps)
     path = str(res.get("path") or cache_path)

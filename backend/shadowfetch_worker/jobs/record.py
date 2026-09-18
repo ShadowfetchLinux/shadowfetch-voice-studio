@@ -113,6 +113,7 @@ def stop(ctx: Ctx, p: SessionParams) -> dict[str, Any]:
     st = ctx.server.state
     session = _session(ctx, p.session_id)
     result = session.stop()
+    _sessions(ctx).pop(p.session_id, None)   # from here on the recording is owned by the library, not the session
     meta = session.meta
     script_id = p.script_id or meta.get("script_id")
     take_number = p.take_number or meta.get("take_number")

@@ -229,6 +229,9 @@ class RecordSession:
             with self._lock:
                 if self.state == "discarded":
                     return {"ok": True, "session_id": self.session_id}
+                if self.state == "stopped":
+                    # A finished recording belongs to the assets table; delete it through the library, never here.
+                    return {"ok": False, "session_id": self.session_id, "kept": True}
                 active = self.state not in ("idle", "stopped")
                 self.state = "discarded"
             if active:

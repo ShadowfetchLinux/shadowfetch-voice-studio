@@ -93,7 +93,7 @@ class FakeEngineManager:
             self.load_order.append(engine_id)
         return {"engine_id": engine_id, "model_id": "fake-model", "revision": "rev1"}
 
-    def prepare_reference(self, ctx, engine_id, reference_path, transcript, language, cache_path) -> dict[str, Any]:
+    def prepare_reference(self, ctx, engine_id, reference_path, transcript, language, cache_path, settings=None) -> dict[str, Any]:
         self.ensure_loaded(ctx, engine_id)
         Path(cache_path).write_bytes(b"prompt:" + Path(reference_path).name.encode())
         self.prepared.append({"engine_id": engine_id, "reference_path": str(reference_path), "transcript": transcript})
@@ -133,7 +133,7 @@ def install_fake_audio(monkeypatch) -> types.ModuleType:
         sf.write(dst, data if channels == 1 else np.stack([data] * channels, 1), sample_rate, subtype="PCM_24")
         return {"path": str(dst), "sample_rate": sample_rate, "channels": channels, "duration_s": n / sample_rate}
 
-    def assemble(takes, out_path, sentence_pause_ms, paragraph_pause_ms, sample_rate=None):
+    def assemble(takes, out_path, sentence_pause_ms, paragraph_pause_ms, sample_rate=None, ctx=None):
         chunks, sr, prev_par = [], None, None
         for t in sorted(takes, key=lambda x: x["index"]):
             data, sr = _read(t["path"])

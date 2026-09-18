@@ -225,8 +225,8 @@ def audio_prepare_reference(ctx: Ctx, p: PrepareReferenceParams) -> dict[str, An
     caps = engines.capabilities(p.engine_id)
     req = caps.reference
     duration = p.end_s - p.start_s
-    if duration < req.min_seconds:
-        raise WorkerError(INVALID_PARAMS, f"{caps.name} needs at least {req.min_seconds:g} s of reference audio (selected {duration:.2f} s).",
+    if duration <= req.min_seconds:
+        raise WorkerError(INVALID_PARAMS, f"{caps.name} needs more than {req.min_seconds:g} s of reference audio (selected {duration:.2f} s).",
                           {"min_seconds": req.min_seconds, "max_seconds": req.max_seconds, "duration_s": duration})
     if duration > req.max_seconds:
         raise WorkerError(INVALID_PARAMS, f"{caps.name} accepts at most {req.max_seconds:g} s of reference audio (selected {duration:.2f} s). Trim the selection.",

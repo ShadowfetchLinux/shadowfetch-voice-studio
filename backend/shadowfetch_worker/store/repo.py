@@ -65,9 +65,17 @@ def normalize_peak_from(processing: Any) -> float | None:
 
 
 # ---- dict shapes
-def reference_dict(row) -> dict[str, Any]:
+ASSET_SUMMARY_SQL = ("SELECT id, kind, source, original_name, original_path, working_path, duration_s, sample_rate, channels, "
+                     "created_at FROM assets WHERE id = ?")
+
+
+def reference_dict(row, db: Database | None = None) -> dict[str, Any]:
+    """voice_references row → dict (+ trim; + the source asset summary when a db is given, so the UI can re-transcribe)."""
     d = row_to_dict(row, REF_JSON)
     d["trim"] = {"start_s": d["start_s"], "end_s": d["end_s"]}
+    if db is not None:
+        a = db.one(ASSET_SUMMARY_SQL, (d["asset_id"],))
+        d["asset"] = dict(a) if a else None
     return d
 
 
@@ -76,7 +84,7 @@ def voice_dict(db: Database, row, with_references: bool = True) -> dict[str, Any
     refs = db.all("SELECT * FROM voice_references WHERE voice_id = ? ORDER BY created_at, id", (d["id"],))
     d["reference_count"] = len(refs)
     if with_references:
-        d["references"] = [reference_dict(r) for r in refs]
+        d["references"] = [reference_dict(r, db) for r in refs]
     return d
 
 

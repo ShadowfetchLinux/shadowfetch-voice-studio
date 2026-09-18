@@ -236,8 +236,9 @@ class EngineManager:
                     if other != engine_id:
                         self.unload(other, reason="another engine was requested")
             models = self.st.get("models")
-            if models is None:
-                raise WorkerError(INTERNAL, "model manager not initialised", recoverable=False)
+            if models is None:   # created lazily; tts.generate may be the first engine-touching call after a restart
+                from ..jobs.models import get_models
+                models = get_models(self.server)
             model_dir = models.resolve_installed_dir(model_id)   # raises MODEL_MISSING / MODEL_INVALID
             revision = models.installed_revision(model_id)
             if host is None or not host.alive():
