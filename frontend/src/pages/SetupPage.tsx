@@ -10,7 +10,7 @@ import { StatusPill, type PillTone } from "@/components/ui/Feedback";
 import { Spinner } from "@/components/ui/Spinner";
 import { AudioDevices } from "@/components/settings/AudioDevices";
 import { ModelRow } from "@/components/model-manager/ModelRow";
-import { handleError, toast, useAppStore } from "@/store/appStore";
+import { handleError, newVoiceParams, toast, useAppStore } from "@/store/appStore";
 
 type CheckState = "ok" | "warn" | "missing" | "checking";
 
@@ -272,7 +272,7 @@ export default function SetupPage() {
     setFinishing(false);
     if (s) {
       toast.success("Setup complete", modelsMissing ? "You can install remaining models later from Settings." : "Next: record or import a voice.");
-      navigate("voices", { action: "new" });
+      navigate("voices", newVoiceParams());
     }
   };
 

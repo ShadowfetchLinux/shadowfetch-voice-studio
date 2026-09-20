@@ -2,7 +2,7 @@ import { AudioLines, Home, Library, Mic, Plus, Settings } from "lucide-react";
 import { cx } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Kbd } from "@/components/ui/Feedback";
-import { useAppStore, type Page } from "@/store/appStore";
+import { newVoiceParams, useAppStore, type Page } from "@/store/appStore";
 
 /** Small logo mark (mirrors src-tauri/icons/app-icon.svg). */
 export function LogoMark({ size = 28 }: { size?: number }) {
@@ -79,7 +79,7 @@ export function Sidebar() {
         {NAV_ITEMS.map((it) => (
           <NavButton key={it.page} item={it} active={page === it.page} onClick={() => navigate(it.page)} />
         ))}
-        <Button size="sm" variant="primary" icon={<Plus />} className="mt-2 w-full" onClick={() => navigate("voices", { action: "new" })}>
+        <Button size="sm" variant="primary" icon={<Plus />} className="mt-2 w-full" onClick={() => navigate("voices", newVoiceParams())}>
           New voice
         </Button>
       </div>

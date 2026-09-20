@@ -65,13 +65,17 @@ export default function VoicesPage() {
     }
     if (isVoiceAction(params.action)) {
       setPane(next);
-      if (prev !== params) setWizardEpoch((e) => e + 1);
+      if (prev !== params && (prev.action !== params.action || prev.nav !== params.nav || prev.voiceId !== params.voiceId)) {
+        setWizardEpoch((e) => e + 1);
+      }
     }
   }, [params]);
 
   const startNewVoice = useCallback(
     (source?: SourceMode) => {
-      navigate("voices", { action: source ?? "new" });
+      setPane({ kind: "new" });
+      setWizardEpoch((e) => e + 1);
+      navigate("voices", { action: source ?? "new", nav: Date.now() });
     },
     [navigate],
   );

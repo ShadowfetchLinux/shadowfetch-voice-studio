@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Kbd } from "@/components/ui/Feedback";
-import { useAppStore, type Page } from "@/store/appStore";
+import { newVoiceParams, useAppStore, type Page } from "@/store/appStore";
 import { NAV_ITEMS, SETTINGS_ITEM } from "./Sidebar";
 
 const SHORTCUTS: Array<{ keys: string[]; label: string }> = [
@@ -38,7 +38,7 @@ export function useGlobalShortcuts() {
       }
       if (e.key === "n" || e.key === "N") {
         e.preventDefault();
-        navigate("voices", { action: "new" });
+        navigate("voices", newVoiceParams());
         return;
       }
       const page = pages[e.key];

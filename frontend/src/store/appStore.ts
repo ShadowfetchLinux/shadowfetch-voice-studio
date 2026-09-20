@@ -23,8 +23,15 @@ export interface RouteParams {
   voiceId?: string;
   /** Initial action: voices→"record" / "import" / "new" (fresh create-voice flow); create→"new". */
   action?: "record" | "import" | "new";
+  /** Unique per navigation so repeating the same voices action remounts the wizard. */
+  nav?: number;
   /** Settings section to scroll to. */
   section?: string;
+}
+
+/** Route params that always start (or restart) the create-voice flow. */
+export function newVoiceParams(source?: "record" | "import"): RouteParams {
+  return { action: source ?? "new", nav: Date.now() };
 }
 
 export interface AppState {

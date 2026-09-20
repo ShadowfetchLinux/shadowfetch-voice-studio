@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState, StatusPill } from "@/components/ui/Feedback";
 import { Spinner } from "@/components/ui/Spinner";
-import { handleError, useLoadedEngine, useAppStore } from "@/store/appStore";
+import { handleError, newVoiceParams, useLoadedEngine, useAppStore } from "@/store/appStore";
 
 function BigAction({ icon, title, text, onClick, primary }: { icon: React.ReactNode; title: string; text: string; onClick: () => void; primary?: boolean }) {
   return (
@@ -43,7 +43,7 @@ function FirstRunBanner() {
         <p className="text-[13px] text-muted">You can make a voice now. Come back to setup if recording or generation asks for a missing piece.</p>
       </div>
       <Button onClick={() => navigate("setup")}>Setup</Button>
-      <Button variant="primary" onClick={() => navigate("voices", { action: "new" })}>
+      <Button variant="primary" onClick={() => navigate("voices", newVoiceParams())}>
         New voice
       </Button>
       <button type="button" aria-label="Hide for now" onClick={() => setHidden(true)} className="size-9 inline-flex items-center justify-center rounded-md text-muted hover:bg-black/5">
@@ -223,7 +223,7 @@ export default function HomePage() {
           <p className="text-[13px] text-muted mt-0.5">Make a voice, write a script, then find the audio in the Library.</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <BigAction icon={<Mic />} title="New voice" text="Record or import a short sample, trim it, check the words, and save." onClick={() => navigate("voices", { action: "new" })} primary />
+          <BigAction icon={<Mic />} title="New voice" text="Record or import a short sample, trim it, check the words, and save." onClick={() => navigate("voices", newVoiceParams())} primary />
           <BigAction icon={<Sparkles />} title="Create speech" text="Write a script and generate audio with a saved voice." onClick={() => navigate("create", { action: "new" })} />
           <BigAction icon={<Library />} title="Library" text="Play, export and back up the speech you have made." onClick={() => navigate("library")} />
         </div>

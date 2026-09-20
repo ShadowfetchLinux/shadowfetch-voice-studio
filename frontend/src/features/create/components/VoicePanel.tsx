@@ -2,7 +2,7 @@ import { Mic } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Field";
 import { formatDuration } from "@/lib/format";
-import { useAppStore } from "@/store/appStore";
+import { newVoiceParams, useAppStore } from "@/store/appStore";
 import { useCreateStore } from "../createStore";
 
 const EXCERPT = 160;
@@ -25,7 +25,7 @@ export function VoicePanel() {
     return (
       <div className="flex flex-col gap-2">
         <p className="text-sm text-muted">No voices yet. Record or import a short sample first.</p>
-        <Button size="sm" variant="primary" icon={<Mic />} onClick={() => navigate("voices", { action: "new" })} className="self-start">
+        <Button size="sm" variant="primary" icon={<Mic />} onClick={() => navigate("voices", newVoiceParams())} className="self-start">
           New voice
         </Button>
       </div>
@@ -57,7 +57,7 @@ export function VoicePanel() {
       {voice && references.length === 0 && (
         <div className="flex flex-col gap-2">
           <p className="text-[12.5px] text-warn">This voice has no recording yet.</p>
-          <Button size="sm" icon={<Mic />} onClick={() => navigate("voices", { voiceId: voice.id, action: "new" })} className="self-start">
+          <Button size="sm" icon={<Mic />} onClick={() => navigate("voices", { ...newVoiceParams(), voiceId: voice.id })} className="self-start">
             Add recording
           </Button>
         </div>
