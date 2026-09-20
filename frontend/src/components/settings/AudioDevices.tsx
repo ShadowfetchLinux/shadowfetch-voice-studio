@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import type { Device } from "@/lib/protocol";
 import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Field";
+import { Switch } from "@/components/ui/Toggle";
 import { handleError, toast, useAppStore } from "@/store/appStore";
 
 const SAMPLE_RATES = [44100, 48000, 96000];
@@ -85,6 +86,13 @@ export function AudioDevices({ showRecordFormat = true }: AudioDevicesProps) {
           Rescan devices
         </Button>
       </div>
+      <Switch
+        label="Input monitoring"
+        description="Play the microphone back while recording so you can hear yourself. Use headphones — speakers will feed back into the mic."
+        checked={settings?.monitor_input ?? false}
+        onChange={(v) => void saveSettings({ monitor_input: v }, { silent: true })}
+        disabled={!settings}
+      />
       {showRecordFormat && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Select

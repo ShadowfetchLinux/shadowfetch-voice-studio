@@ -15,6 +15,7 @@
 │  store/: SQLite + migrations                 │        └───────────────────────────────┘
 │  audio/: ffmpeg/ffprobe, peaks, stats, trim, assemble, loudness, export                │
 │  record/: sounddevice (PortAudio) or ffmpeg-pulse fallback → incremental 24-bit WAV    │
+│          optional input monitor (PortAudio out, then paplay/ffmpeg pulse)              │
 │  models/: registry, HF downloads (subprocess, cancellable), verification, offline      │
 │  engines/manager.py: spawns engine hosts, one loaded engine at a time, idle unload     │
 └───────┬───────────────────────────────┬───────────────────────────────────────────────┘
@@ -22,6 +23,7 @@
 ┌───────▼───────────────┐   ┌───────────▼─────────────┐
 │ engine host (env main)│   │ engine host (env chatterbox)│   python -m shadowfetch_worker.engine_host --engine <id>
 │  qwen3_tts adapter    │   │  chatterbox_turbo adapter │   torch lives ONLY in these processes
+│  (base + custom_voice)│   │                           │
 └───────────────────────┘   └───────────────────────────┘
 ```
 
@@ -43,10 +45,10 @@
 | `frontend/` | React app (Vite). `src/lib/api.ts` is the only place that calls `invoke`. |
 | `src-tauri/` | Rust shell: `src/worker.rs` (supervisor), `src/commands.rs`, `tauri.conf.json`, `capabilities/` |
 | `backend/shadowfetch_worker/` | Python worker package (see tree above) |
-| `backend/envs/<id>/` (dev) or `<data>/runtime/envs/<id>/` (packaged) | isolated Python environments |
+| `backend/envs/<id>/` (dev) or `<data>/runtime/envs/<id>/` (packaged, never a checkout symlink) | isolated Python environments |
 | `scripts/` | doctor / bootstrap / dev / test / build |
 | `tests/` | backend pytest (mocked + `-m realmodel`), frontend vitest, IPC tests |
-| `docs/` | this file, PROTOCOL.md, MODEL_LICENSES.md, THIRD_PARTY_NOTICES.md, TEST_REPORT.md |
+| `docs/` | this file, PROTOCOL.md, MODEL_LICENSES.md, THIRD_PARTY_NOTICES.md, TEST_REPORT.md, USER_GUIDE.md, FINETUNING.md |
 
 ## Data layout (`$XDG_DATA_HOME/com.shadowfetch.voicestudio`)
 ```
@@ -76,4 +78,5 @@ Config: `$XDG_CONFIG_HOME/com.shadowfetch.voicestudio/settings.json`. Cache: `$X
 ## Engine hosts
 Started lazily by `EngineManager`; only one engine is loaded at a time by default (`gpu_jobs = 1`). `engine.unload`
 or idle timeout kills the host process, which is the only reliable way to return VRAM. A host that dies mid-job
-yields `ENGINE_CRASHED` with the completed segments preserved.
+yields `ENGINE_CRASHED` with the completed segments preserved. After load, live `engine.caps` replace the static
+adapter caps so a fine-tuned Qwen `custom_voice` checkpoint can expose its speaker control instead of ICL cloning.

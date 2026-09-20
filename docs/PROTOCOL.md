@@ -88,7 +88,7 @@ Paths are always absolute and must be inside the app data dir or explicitly user
 
 ### record
 - `record.devices` → `{inputs:[Device], default_input}`
-- `record.start` `{device_index?, sample_rate?:48000, channels?:1, subtype?:"PCM_24", session_name?}` → `{session_id, path, negotiated:{sample_rate, channels, dtype, subtype, hostapi, device_name, latency_s}, notes:[...]}`
+- `record.start` `{device_index?, sample_rate?:48000, channels?:1, subtype?:"PCM_24", session_name?, script_id?, take_number?}` → `{session_id, path, negotiated:{sample_rate, channels, dtype, subtype, hostapi, device_name, latency_s}, notes:[...], monitoring:bool}` — `monitoring` is true when `settings.monitor_input` is on and playback to `settings.output_device_index` started.
 - `record.pause` / `record.resume` `{session_id}` → `{session_id, state:"paused"|"recording", elapsed_s}`
 - `record.stop` `{session_id}` → `{session_id, path, duration_s, stats, negotiated, notes, asset_id, recording_id, working_path}` (registers the recording as a `reference` asset; a stopped recording can no longer be discarded through the session — delete it from the library)
 - `record.discard` `{session_id}` → `{ok}`
@@ -128,7 +128,9 @@ The UI renders **only** what appears here.
 ### voices / projects / library (persistence)
 - `voices.create` `{name, tags, language, rights_confirmed:true, asset_id, trim:{start_s,end_s}, transcript, engine_id?, processing:[...]}` → `Voice`
 - `voices.list` / `voices.get {id}` / `voices.update {id, patch}` / `voices.delete {id, force?}` (warns with `details.used_by_projects` unless force)
-- `voices.add_reference {voice_id, asset_id, trim, transcript, processing?, label?, select?, engine_id?}` → `Reference` ; `voices.select_reference {voice_id, reference_id}` ; `voices.update_reference {reference_id, patch:{transcript?, transcript_confirmed?, label?}}` → `Reference` (a transcript edit invalidates derived files and prompt caches)
+- `voices.add_reference {voice_id, asset_id, trim, transcript, processing?, label?, select?, engine_id?}` → `Reference` ; `voices.select_reference {voice_id, reference_id}` ; `voices.update_reference {reference_id, patch:{transcript?, transcript_confirmed?, transcript_source?, label?, trim?, processing?}}` → `Reference` (a transcript, trim, or processing change invalidates derived files and prompt caches; trim/processing without an explicit `transcript_confirmed` marks the transcript unreviewed)
+- `dataset.export {voice_id, out_dir, reference_id?}` → `{path, jsonl, samples, skipped, reference, total_seconds}`
+- `dataset.preflight {params?, batch?, seq?}` → `{gpu, vram_total_gb, vram_free_gb, estimate_gb, fits, verdict}` (does not train)
   `Reference` rows carry `trim`, `fingerprint`, `derived` (per engine) and an `asset` summary `{id, kind, source, original_name, original_path, working_path, duration_s, sample_rate, channels}` so the UI can re-transcribe. When `engine_id` is given on create/add, the trim is validated against that engine's reference window (`min_seconds` is exclusive).
 - `projects.create` `{name, voice_id?, reference_id?, engine_id?, folder?}` → `Project`
 - `projects.get {id}` → `{project, script:{text, version, updated_at}|null, segments:[{id, index, paragraph, text, normalized_text, substitutions, char_count, selected_take_id, takes:[Take]}], exports:[...]}`
@@ -149,7 +151,7 @@ The UI renders **only** what appears here.
 - `models.download` `{model_id}` → progress (bytes) → `{model_id, path, revision, size_bytes}` (refused with `OFFLINE_BLOCKED` when offline)
 - `models.cancel_download` `{model_id}` → `{ok}` (the in-flight `models.download` request then ends with `CANCELLED` `{model_id, resumable:true, state}`; a later `models.download` resumes from the completed blobs)
 - `models.verify` `{model_id}` → `{ok, missing_files:[...], revision}`
-- `models.use_existing_dir` `{model_id, path}` → `{ok, revision?, warnings}`
+- `models.use_existing_dir` `{model_id, path}` → `{ok, revision?, warnings}` — warnings include an unknown revision for a custom folder, and (for Qwen) when `config.json` reports `tts_model_type=custom_voice` or another non-base type.
 - `models.remove` `{model_id, confirm:true}` → `{ok, deleted, freed_bytes}` (only the managed cache directory; a custom directory is merely unlinked)
 - `models.state` `{model_id}` → one entry of `models.list`; `engine.health {engine_id}`; `transcribe.unload` → `{ok}` (extra methods beyond the original draft)
 

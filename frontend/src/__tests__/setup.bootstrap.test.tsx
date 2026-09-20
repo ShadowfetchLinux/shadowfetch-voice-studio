@@ -44,6 +44,29 @@ describe("<SetupPage /> runtime bootstrap", () => {
       engines: [],
       models: [],
     });
+    mod.api.shell.runtimeStatus.mockResolvedValue({
+      python: "/data/runtime/envs/main/bin/python",
+      pythonpath: "/backend",
+      mode: "managed",
+      found: true,
+      python_found: true,
+      package_found: true,
+      source: "managed",
+      runtime_root: "/data/runtime",
+      bootstrap_script: "/scripts/bootstrap.sh",
+      bootstrap_script_found: true,
+      bootstrap_running: false,
+      standalone: true,
+    });
+  });
+
+  it("offers Install environments when the worker has not reported diagnostics yet", async () => {
+    const { mod } = await h;
+    useAppStore.setState({ diagnostics: null });
+    render(<SetupPage />);
+    expect(screen.getByRole("button", { name: "Install environments" })).toBeInTheDocument();
+    expect(screen.getByText(/worker is not running yet/i)).toBeInTheDocument();
+    await waitFor(() => expect(mod.api.shell.runtimeStatus).toHaveBeenCalled());
   });
 
   it("asks for the optional Chatterbox env and uv auto-install, then re-runs diagnostics and engines", async () => {
@@ -66,6 +89,27 @@ describe("<SetupPage /> runtime bootstrap", () => {
     render(<SetupPage />);
     await user.click(screen.getByRole("button", { name: "Install environments" }));
     await waitFor(() => expect(mod.api.shell.runtimeBootstrap).toHaveBeenCalledWith({ withChatterbox: false, autoInstallUv: true }));
+  });
+
+  it("offers Install environments when the runtime is still linked to the checkout", async () => {
+    const { mod } = await h;
+    mod.api.shell.runtimeStatus.mockResolvedValue({
+      python: "/data/runtime/envs/main/bin/python",
+      pythonpath: "/backend",
+      mode: "managed",
+      found: true,
+      python_found: true,
+      package_found: true,
+      source: "managed",
+      runtime_root: "/data/runtime",
+      bootstrap_script: "/scripts/bootstrap.sh",
+      bootstrap_script_found: true,
+      bootstrap_running: false,
+      standalone: false,
+    });
+    render(<SetupPage />);
+    expect(await screen.findByText(/still linked to the project checkout/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Install environments" })).toBeInTheDocument();
   });
 
   it("treats a rejected bootstrap as a failure and still refreshes the probes", async () => {

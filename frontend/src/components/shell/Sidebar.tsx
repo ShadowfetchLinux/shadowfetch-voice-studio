@@ -1,5 +1,6 @@
-import { AudioLines, Home, Library, Mic, Settings } from "lucide-react";
+import { AudioLines, Home, Library, Mic, Plus, Settings } from "lucide-react";
 import { cx } from "@/lib/format";
+import { Button } from "@/components/ui/Button";
 import { Kbd } from "@/components/ui/Feedback";
 import { useAppStore, type Page } from "@/store/appStore";
 
@@ -78,6 +79,9 @@ export function Sidebar() {
         {NAV_ITEMS.map((it) => (
           <NavButton key={it.page} item={it} active={page === it.page} onClick={() => navigate(it.page)} />
         ))}
+        <Button size="sm" variant="primary" icon={<Plus />} className="mt-2 w-full" onClick={() => navigate("voices", { action: "new" })}>
+          New voice
+        </Button>
       </div>
       <div className="mt-auto p-3 border-t border-sidebar-border">
         <NavButton item={SETTINGS_ITEM} active={page === "settings" || page === "setup"} onClick={() => navigate("settings")} />

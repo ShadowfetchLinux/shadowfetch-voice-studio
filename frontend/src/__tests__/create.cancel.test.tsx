@@ -11,7 +11,7 @@ vi.mock("@/lib/api", () => ({
     voices: { list: vi.fn() },
     tts: { plan: vi.fn(), assemble: vi.fn(), compareEngines: vi.fn() },
     audio: { peaks: vi.fn() },
-    shell: { pickTextFile: vi.fn(), readTextFile: vi.fn(), fileSrc: (p: string) => p },
+    shell: { pickTextFile: vi.fn(), readTextFile: vi.fn(), fileSrc: (p: string) => p, mediaSrc: async (p: string) => p, releaseMediaSrc: () => undefined },
   },
   isPreviewMock: () => false,
   isTauri: () => false,
@@ -119,6 +119,6 @@ describe("cancel keeps completed segments", () => {
     useCreateStore.setState({ voiceId: null, referenceId: null, voices: [] });
     expect(await useCreateStore.getState().generate({ mode: "full" })).toBe(false);
     expect(api.requestRaw).not.toHaveBeenCalled();
-    expect(useCreateStore.getState().error?.message).toMatch(/no voice reference/);
+    expect(useCreateStore.getState().error?.message).toMatch(/no voice yet/);
   });
 });

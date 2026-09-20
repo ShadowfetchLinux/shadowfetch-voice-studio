@@ -90,11 +90,11 @@ describe("<TranscriptStep /> with a mocked worker", () => {
     const user = userEvent.setup();
     render(<Host initial={selA} />);
     expect(screen.getByText("faster-whisper-small.en")).toBeInTheDocument();
-    const box = screen.getByRole("checkbox", { name: /I reviewed this transcript/ });
+    const box = screen.getByRole("checkbox", { name: /I checked these words/ });
     expect(box).toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: "Transcribe selection" }));
-    await waitFor(() => expect(screen.getByLabelText("Transcript of the selection")).toHaveValue("The quick brown fox."));
+    await user.click(screen.getByRole("button", { name: "Fill in the words" }));
+    await waitFor(() => expect(screen.getByLabelText("Words spoken in the selection")).toHaveValue("The quick brown fox."));
     expect(mod.api.transcribe.run).toHaveBeenCalledWith({ path: source.path, start_s: 1, end_s: 13, model_id: "faster-whisper-small.en", language: "en", device: "cpu" }, expect.objectContaining({ onProgress: expect.any(Function) }));
     expect(screen.getByTestId("can-save")).toHaveTextContent("false");
     expect(box).toBeEnabled();
@@ -112,7 +112,7 @@ describe("<TranscriptStep /> with a mocked worker", () => {
     expect(box).toBeEnabled();
     await user.click(box);
     expect(screen.getByTestId("can-save")).toHaveTextContent("true");
-    expect(screen.getByRole("button", { name: "Re-transcribe selection" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Transcribe again" })).toBeInTheDocument();
   });
 });
 

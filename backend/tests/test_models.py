@@ -97,6 +97,27 @@ def test_verify_ok_and_events(app, ctx):
     assert states[:2] == ["verifying", "installed"]
 
 
+def test_read_tts_model_type_and_custom_voice_warning(app, ctx, tmp_path):
+    from shadowfetch_worker.models.verify import read_tts_model_type
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert read_tts_model_type(empty) is None
+    (empty / "config.json").write_text("{not json")
+    assert read_tts_model_type(empty) is None
+    mm = get_models(ctx)
+    custom = tmp_path / "ft-qwen"
+    for f in MODELS[QWEN]["required_files"]:
+        (custom / f).parent.mkdir(parents=True, exist_ok=True)
+        if f == "config.json":
+            (custom / f).write_text(json.dumps({"tts_model_type": "custom_voice", "speakers": ["myvoice"]}))
+        else:
+            (custom / f).write_bytes(b"z" * 10)
+    assert read_tts_model_type(custom) == "custom_voice"
+    res = mm.use_existing_dir(QWEN, str(custom))
+    assert res["ok"] and any("CustomVoice" in w for w in res["warnings"])
+
+
 def test_custom_dir(app, ctx, tmp_path):
     mm = get_models(ctx)
     custom = tmp_path / "my-qwen"

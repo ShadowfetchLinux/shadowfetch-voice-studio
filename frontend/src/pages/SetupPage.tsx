@@ -129,7 +129,12 @@ function EnvStep() {
   const engines = useAppStore((s) => s.engines);
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState<string[]>([]);
+  const [standalone, setStandalone] = useState<boolean | null>(null);
   const logRef = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    void api.shell.runtimeStatus().then((r) => setStandalone(r.standalone)).catch(() => setStandalone(null));
+  }, [diagnostics]);
 
   useEffect(() => {
     const off = api.events.onRuntimeLog((l) => setLog((prev) => [...prev.slice(-499), l.line]));
@@ -156,6 +161,8 @@ function EnvStep() {
       toast.success("Environment setup finished", "The worker restarts with the new environments; re-checking…");
       // The worker is restarted by the shell after a successful bootstrap; the fresh process reports the real state.
       await Promise.all([loadDiagnostics(), loadEngines()]);
+      const runtime = await api.shell.runtimeStatus().catch(() => null);
+      setStandalone(runtime?.standalone ?? null);
     } catch (err) {
       handleError(err, "Environment setup failed");
       await Promise.all([loadDiagnostics(), loadEngines()]);
@@ -167,8 +174,14 @@ function EnvStep() {
   const envName = (id: string) => engines.find((e) => e.env === id)?.name ?? id;
 
   return (
-    <Step n={3} title="Python engine environments" state={state} description="Each engine runs in its own Python environment with torch. They are created by the bootstrap script.">
+    <Step n={3} title="Python engine environments" state={state} description="Each engine runs in its own Python environment with torch. They are created on this machine and do not use the source tree.">
       <div className="flex flex-col gap-3 text-sm">
+        {standalone === false && (
+          <p className="text-warn">
+            The engine runtime is still linked to the project checkout. Click <strong>Install environments</strong> to
+            create a standalone copy under the app data folder.
+          </p>
+        )}
         {Object.entries(envs).map(([id, p]) => (
           <div key={id} className="flex items-center gap-3">
             <StatusPill tone={p.installed && !p.error && !p.torch_error ? "success" : id === "chatterbox" ? "neutral" : "danger"} size="sm">
@@ -184,11 +197,11 @@ function EnvStep() {
             </span>
           </div>
         ))}
-        {!diagnostics && <p className="text-muted">Probing environments…</p>}
-        {diagnostics && (!main?.installed || !chatterbox?.installed) && (
+        {!diagnostics && <p className="text-muted">The worker is not running yet. Install the local Python environments to start it.</p>}
+        {(!diagnostics || !main?.installed || !chatterbox?.installed || standalone === false) && (
           <div className="flex items-center gap-3 flex-wrap">
-            <Button variant={main?.installed ? "secondary" : "primary"} icon={<TerminalSquare />} loading={running} onClick={() => void bootstrap()}>
-              {main?.installed ? "Install optional environments" : "Install environments"}
+            <Button variant={main?.installed && standalone !== false ? "secondary" : "primary"} icon={<TerminalSquare />} loading={running} onClick={() => void bootstrap()}>
+              {main?.installed && standalone !== false ? "Install optional environments" : "Install environments"}
             </Button>
             <span className="text-[12.5px] text-muted">Downloads Python packages (torch is several GB). Output streams below.</span>
           </div>
@@ -258,8 +271,8 @@ export default function SetupPage() {
     const s = await saveSettings({ onboarding_done: true }, { silent: true });
     setFinishing(false);
     if (s) {
-      toast.success("Setup complete", modelsMissing ? "You can install the remaining models later from Settings." : undefined);
-      navigate("home");
+      toast.success("Setup complete", modelsMissing ? "You can install remaining models later from Settings." : "Next: record or import a voice.");
+      navigate("voices", { action: "new" });
     }
   };
 
@@ -317,12 +330,12 @@ export default function SetupPage() {
 
       <div className="panel flex items-center justify-between gap-4 px-5 py-4">
         <div className="text-sm">
-          <p className="font-medium">{settings?.onboarding_done ? "Setup was already completed." : "Done checking?"}</p>
-          <p className="text-muted text-[13px]">{modelsMissing ? "The voice-cloning model is not installed yet; you can finish now and download it later from Settings." : "You can revisit this checklist any time from Settings."}</p>
+          <p className="font-medium">{settings?.onboarding_done ? "Setup was already completed." : "Ready to make a voice?"}</p>
+          <p className="text-muted text-[13px]">{modelsMissing ? "The voice model is not installed yet; you can continue and download it later from Settings." : "You can reopen this checklist any time from Settings."}</p>
         </div>
         <div className="flex gap-2">
           <Button variant="primary" loading={finishing} onClick={() => void finish()} disabled={!settings}>
-            {settings?.onboarding_done ? "Back to Home" : "Finish setup"}
+            {settings?.onboarding_done ? "Back to Voices" : "Start with a voice"}
           </Button>
         </div>
       </div>

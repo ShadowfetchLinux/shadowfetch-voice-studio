@@ -1,16 +1,17 @@
 import { useState } from "react";
-import { Captions, CheckCircle2, Database, Pencil, Plus } from "lucide-react";
+import { Captions, CheckCircle2, Database, Pencil, Plus, Scissors } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Progress, Reference, Voice } from "@/lib/protocol";
 import { cx, formatDuration, formatRelative, formatTime } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Dialog } from "@/components/ui/Dialog";
-import { Textarea } from "@/components/ui/Field";
+import { Input, Textarea } from "@/components/ui/Field";
 import { Checkbox } from "@/components/ui/Toggle";
 import { EmptyState, ProgressBar, StatusPill } from "@/components/ui/Feedback";
 import { handleError, toast, useAppStore } from "@/store/appStore";
-import { describeProcessing } from "./processing";
+import { DatasetWorkspace } from "./DatasetWorkspace";
+import { processingSteps } from "./processing";
 
 export interface VoiceDetailProps {
   voice: Voice;
@@ -27,27 +28,15 @@ export function referenceAudioPath(r: Reference): string | null {
 export function VoiceDetail({ voice, onAddReference, onChanged }: VoiceDetailProps) {
   const settings = useAppStore((s) => s.settings);
   const refs = voice.references ?? [];
-  const [exporting, setExporting] = useState(false);
-  const exportDataset = async () => {
-    try {
-      const dir = await api.shell.pickDirectory();
-      if (!dir) return;
-      setExporting(true);
-      const res = await api.request("dataset.export", { voice_id: voice.id, out_dir: dir });
-      const skipped = res.skipped.length ? ` · ${res.skipped.length} skipped (unreviewed transcript or out of range)` : "";
-      toast.success(`Dataset exported: ${res.samples} utterance${res.samples === 1 ? "" : "s"}, ${Math.round(res.total_seconds)} s`, `${res.path}${skipped}. See docs/FINETUNING.md — training does not fit in 16 GB VRAM and is not run by the app.`);
-      void api.shell.revealPath(res.jsonl).catch(() => undefined);
-    } catch (err) {
-      handleError(err, "Dataset export failed");
-    } finally {
-      setExporting(false);
-    }
-  };
+  const [datasetOpen, setDatasetOpen] = useState(false);
   const [editing, setEditing] = useState<Reference | null>(null);
   const [text, setText] = useState("");
   const [reviewed, setReviewed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [asr, setAsr] = useState<{ id: string; progress: Progress | null } | null>(null);
+  const [trimming, setTrimming] = useState<Reference | null>(null);
+  const [trimStart, setTrimStart] = useState("");
+  const [trimEnd, setTrimEnd] = useState("");
 
   const select = async (r: Reference) => {
     try {
@@ -64,17 +53,43 @@ export function VoiceDetail({ voice, onAddReference, onChanged }: VoiceDetailPro
     setReviewed(false);
   };
 
+  const openTrim = (r: Reference) => {
+    setTrimming(r);
+    setTrimStart(r.start_s.toFixed(3));
+    setTrimEnd(r.end_s.toFixed(3));
+  };
+
   const saveTranscript = async () => {
     if (!editing) return;
     setBusy(true);
     try {
-      // `voices.update_reference` exists in the worker but is not in the PROTOCOL method table yet.
-      await api.requestRaw("voices.update_reference", { reference_id: editing.id, patch: { transcript: text.trim(), transcript_source: "edited", transcript_confirmed: true } });
+      await api.voices.updateReference({ reference_id: editing.id, patch: { transcript: text.trim(), transcript_source: "edited", transcript_confirmed: true } });
       toast.success("Transcript updated", "Derived engine files for this reference will be rebuilt on next use.");
       setEditing(null);
       onChanged();
     } catch (err) {
       handleError(err, "Could not update the transcript");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveTrim = async () => {
+    if (!trimming) return;
+    const start_s = Number(trimStart);
+    const end_s = Number(trimEnd);
+    if (!Number.isFinite(start_s) || !Number.isFinite(end_s) || end_s <= start_s) {
+      toast.error("Invalid trim", "End must be after start.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.voices.updateReference({ reference_id: trimming.id, patch: { trim: { start_s, end_s } } });
+      toast.success("Trim updated", "The previous transcript is marked unreviewed — confirm it still matches the new selection.");
+      setTrimming(null);
+      onChanged();
+    } catch (err) {
+      handleError(err, "Could not update the trim");
     } finally {
       setBusy(false);
     }
@@ -97,25 +112,30 @@ export function VoiceDetail({ voice, onAddReference, onChanged }: VoiceDetailPro
   return (
     <Card
       title={voice.name}
-      description={`${voice.language.toUpperCase()} · ${refs.length} reference variant${refs.length === 1 ? "" : "s"} · updated ${formatRelative(voice.updated_at)}${voice.notes ? ` · ${voice.notes}` : ""}`}
+      description={`${voice.language.toUpperCase()} · ${refs.length} recording${refs.length === 1 ? "" : "s"} · updated ${formatRelative(voice.updated_at)}${voice.notes ? ` · ${voice.notes}` : ""}`}
       actions={
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="ghost" icon={<Database />} loading={exporting} disabled={refs.length === 0} onClick={() => void exportDataset()} title="Advanced: write this voice's reviewed recordings as a Qwen3-TTS fine-tuning dataset (audio + JSONL). No training happens in the app.">
-            Export training dataset
+          <Button size="sm" variant="ghost" icon={<Database />} disabled={refs.length === 0} onClick={() => setDatasetOpen(true)} title="Advanced: review recordings and export a fine-tuning dataset. No training happens in the app.">
+            Dataset workspace
           </Button>
           <Button size="sm" variant="primary" icon={<Plus />} onClick={onAddReference}>
-            Add reference
+            Add recording
           </Button>
         </div>
       }
     >
+      <p className="text-[12.5px] text-muted mb-3" data-testid="voice-rights">
+        {voice.rights_confirmed
+          ? `Rights confirmed${voice.rights_note ? ` — ${voice.rights_note}` : " (own voice or authorized use)"}.`
+          : "Rights have not been confirmed for this voice."}
+      </p>
       {refs.length === 0 ? (
-        <EmptyState compact title="No reference yet" text="Add a reference recording so this voice can be used for generation." />
+        <EmptyState compact title="No recording yet" text="Add a short sample so this voice can be used to generate speech." action={<Button variant="primary" icon={<Plus />} onClick={onAddReference}>Add recording</Button>} />
       ) : (
         <ul className="flex flex-col gap-3" aria-label="Reference variants">
           {refs.map((r) => {
             const active = r.id === voice.selected_reference_id;
-            const proc = describeProcessing(r.processing);
+            const hist = processingSteps(r.processing);
             const canAsr = !!referenceAudioPath(r);
             return (
               <li key={r.id} className={cx("rounded-[var(--radius-panel)] border p-4 flex flex-col gap-2", active ? "border-accent bg-accent-soft/30" : "border-border")}>
@@ -129,12 +149,17 @@ export function VoiceDetail({ voice, onAddReference, onChanged }: VoiceDetailPro
                       active
                     </StatusPill>
                   )}
+                  <StatusPill size="sm" tone={r.transcript_confirmed ? "success" : "warn"}>
+                    {r.transcript_confirmed ? "transcript reviewed" : "transcript needs review"}
+                  </StatusPill>
                   <span className="text-[12.5px] text-muted tabular-nums">
                     {formatTime(r.start_s, true)} – {formatTime(r.end_s, true)} ({formatDuration(r.end_s - r.start_s)})
                     {r.transcript_source ? ` · transcript ${r.transcript_source === "asr" ? `by ${r.asr_model ?? "ASR"}` : "edited"}` : ""}
-                    {proc ? ` · ${proc}` : ""}
                   </span>
                   <span className="flex-1" />
+                  <Button size="sm" variant="ghost" icon={<Scissors />} onClick={() => openTrim(r)}>
+                    Edit trim
+                  </Button>
                   <Button size="sm" variant="ghost" icon={<Pencil />} onClick={() => openEdit(r)}>
                     Edit transcript
                   </Button>
@@ -147,6 +172,9 @@ export function VoiceDetail({ voice, onAddReference, onChanged }: VoiceDetailPro
                 {asr?.id === r.id && <ProgressBar size="sm" label={asr.progress?.message ?? "Starting transcription…"} />}
                 <p className="text-[13px] text-text leading-relaxed line-clamp-3" title={r.transcript}>
                   {r.transcript}
+                </p>
+                <p className="text-[12px] text-muted" data-testid="processing-history">
+                  {hist.length > 0 ? `Processing history (derived copy, in order): ${hist.join(" → ")}` : "No optional processing — original selection only."}
                 </p>
                 {r.derived && Object.keys(r.derived).length > 0 && <p className="text-[12px] text-muted">Prepared for: {Object.keys(r.derived).join(", ")}</p>}
               </li>
@@ -178,6 +206,33 @@ export function VoiceDetail({ voice, onAddReference, onChanged }: VoiceDetailPro
           <p className="text-[12px] text-muted">Changing the transcript invalidates the engine's prepared prompt for this reference; it is rebuilt automatically on the next generation.</p>
         </div>
       </Dialog>
+
+      <Dialog
+        open={!!trimming}
+        onClose={() => setTrimming(null)}
+        title="Edit reference trim"
+        locked={busy}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setTrimming(null)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={() => void saveTrim()} loading={busy}>
+              Save trim
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Start (seconds)" type="number" step="0.01" min={0} value={trimStart} onChange={(e) => setTrimStart(e.target.value)} />
+            <Input label="End (seconds)" type="number" step="0.01" min={0} value={trimEnd} onChange={(e) => setTrimEnd(e.target.value)} />
+          </div>
+          <p className="text-[12px] text-muted">Changing the selection marks the transcript as unreviewed. Re-transcribe or confirm the words still match before generating.</p>
+        </div>
+      </Dialog>
+
+      <DatasetWorkspace voice={voice} open={datasetOpen} onClose={() => setDatasetOpen(false)} onChanged={onChanged} />
     </Card>
   );
 }

@@ -180,6 +180,7 @@ pub struct RuntimeStatus {
     pub bootstrap_script: String,
     pub bootstrap_script_found: bool,
     pub bootstrap_running: bool,
+    pub standalone: bool,
 }
 
 impl RuntimeStatus {
@@ -197,6 +198,7 @@ impl RuntimeStatus {
             bootstrap_script_found: script.is_file(),
             bootstrap_script: script.display().to_string(),
             bootstrap_running: state.bootstrap_running.load(Ordering::SeqCst),
+            standalone: loc.standalone,
         }
     }
 }
@@ -417,6 +419,24 @@ pub async fn pick_save_path(
     }
     state.remember_file(&state.picked_files, &picked);
     Ok(Some(picked.display().to_string()))
+}
+
+/// Native dialog for a project backup zip; the picked path becomes openable. `None` when cancelled.
+#[tauri::command]
+pub async fn pick_archive_file(
+    app: AppHandle,
+    state: State<'_, ShellState>,
+) -> Result<Option<String>, WorkerError> {
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Choose a backup zip")
+        .add_filter("Backup zip", &["zip"])
+        .blocking_pick_file();
+    Ok(picked.and_then(|fp| fp.into_path().ok()).map(|p| {
+        state.remember_file(&state.picked_files, &p);
+        p.display().to_string()
+    }))
 }
 
 /// Native folder picker; the folder becomes openable. `None` when cancelled.

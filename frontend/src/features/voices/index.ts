@@ -6,7 +6,8 @@ export { suggestSelection, validateSelection, DEFAULT_SUGGESTED_RANGE } from "./
 export type { TrimVerdict, TrimLevel } from "./trimValidation";
 export { transcriptReducer, initialTranscriptState, selectionKey, isTranscriptStale, canUseTranscript } from "./transcriptState";
 export type { TranscriptState, TranscriptAction } from "./transcriptState";
-export { defaultProcessing, toPreviewProcessing, toProcessingSteps, describeProcessing, isProcessingActive } from "./processing";
+export { defaultProcessing, toPreviewProcessing, toProcessingSteps, describeProcessing, processingSteps, isProcessingActive } from "./processing";
+export { DatasetWorkspace } from "./DatasetWorkspace";
 export type { ProcessingOptions } from "./processing";
 export { TagChipsInput, normalizeTag } from "./TagChipsInput";
 export { Recorder } from "./Recorder";

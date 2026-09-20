@@ -120,6 +120,8 @@ class RecordSession:
         self._meter: threading.Thread | None = None
         self._meter_stop = threading.Event()
         self._writer_done = threading.Event()
+        self._monitor = None
+        self.monitoring = False
 
     # ------------------------------------------------------------------ public API
     def start(self, paths: AppPaths, device_index: int | None, sample_rate: int = 48000, channels: int = 1,
@@ -172,6 +174,12 @@ class RecordSession:
             self._emit_state("recording")
         return {"session_id": self.session_id, "asset_id": self.asset_id, "path": str(self.path), "negotiated": self.negotiated,
                 "notes": list(self.notes), "state": self.state}
+
+    def attach_monitor(self, monitor) -> dict[str, Any]:
+        """Play captured blocks to `monitor` (already started). Stopped with the session."""
+        self._monitor = monitor
+        self.monitoring = True
+        return {"monitoring": True}
 
     def pause(self) -> dict[str, Any]:
         with self._lock:
@@ -273,6 +281,7 @@ class RecordSession:
             self._win_peak = max(self._win_peak, peak)
             self._win_sumsq += float(np.dot(block.astype(np.float64), block.astype(np.float64)))
             self._win_count += block.size
+        self._feed_monitor(block)
         if self.state not in ("starting", "recording"):
             return
         if peak >= self.CLIP_LEVEL:
@@ -282,6 +291,27 @@ class RecordSession:
             self.frames_captured += block.size
         except queue.Full:
             self.dropped_blocks += 1
+
+    def _feed_monitor(self, block: np.ndarray) -> None:
+        mon = self._monitor
+        if mon is None:
+            return
+        try:
+            mon.write(block)
+        except Exception as e:  # noqa: BLE001 — monitoring must never take the capture thread down
+            log.warning("input monitor failed: %s", e)
+            self._stop_monitor()
+            self.notes.append(f"Input monitoring stopped: {e}")
+
+    def _stop_monitor(self) -> None:
+        mon, self._monitor = self._monitor, None
+        self.monitoring = False
+        if mon is None:
+            return
+        try:
+            mon.stop()
+        except Exception as e:  # noqa: BLE001
+            log.warning("stopping input monitor failed: %s", e)
 
     def _on_capture_error(self, exc: BaseException) -> None:
         """Backend thread: the device went away or the reader died. Keep the file; the stream is already dead."""
@@ -362,6 +392,7 @@ class RecordSession:
     def _shutdown_pipeline(self) -> None:
         """Stop capture, let the writer finish the queue, close the file. Safe to call more than once."""
         self._meter_stop.set()
+        self._stop_monitor()
         if self._backend is not None:
             try:
                 self._backend.stop()

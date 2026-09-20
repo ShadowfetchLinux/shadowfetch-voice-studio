@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { clamp } from "@/lib/format";
 import type { Selection } from "./waveformMath";
@@ -63,7 +63,33 @@ export function usePlayer(opts: UsePlayerOptions = {}): Player {
   const restrictRef = useRef(restrictToSelection);
   restrictRef.current = restrictToSelection;
 
-  const resolvedSrc = useMemo(() => src ?? (path ? api.shell.fileSrc(path) : null), [src, path]);
+  // Explicit `src` is used verbatim; a `path` is resolved to a playable (blob) URL asynchronously.
+  const [resolvedSrc, setResolvedSrc] = useState<string | null>(src ?? null);
+  useEffect(() => {
+    let cancelled = false;
+    if (src) {
+      setResolvedSrc(src);
+      return;
+    }
+    if (!path) {
+      setResolvedSrc(null);
+      return;
+    }
+    const p = path;
+    api.shell
+      .mediaSrc(p)
+      .then((url) => {
+        if (cancelled) api.shell.releaseMediaSrc(p);
+        else setResolvedSrc(url);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(`The audio file could not be loaded: ${(err as { message?: string })?.message ?? String(err)}`);
+      });
+    return () => {
+      cancelled = true;
+      api.shell.releaseMediaSrc(p);
+    };
+  }, [src, path]);
 
   // Create the element once.
   useEffect(() => {
@@ -80,7 +106,11 @@ export function usePlayer(opts: UsePlayerOptions = {}): Player {
       setPlaying(false);
       onEnded?.();
     };
-    const onErr = () => setError(a.error?.message || "The audio file could not be loaded");
+    const onErr = () => {
+      const codes: Record<number, string> = { 1: "playback aborted", 2: "network error while reading the file", 3: "the file could not be decoded", 4: "the source is not supported or was blocked (asset protocol / CSP)" };
+      const code = a.error?.code ?? 0;
+      setError(`The audio file could not be loaded: ${codes[code] ?? "unknown error"}${a.error?.message ? ` — ${a.error.message}` : ""}`);
+    };
     a.addEventListener("loadedmetadata", onMeta);
     a.addEventListener("durationchange", onMeta);
     a.addEventListener("play", onPlay);

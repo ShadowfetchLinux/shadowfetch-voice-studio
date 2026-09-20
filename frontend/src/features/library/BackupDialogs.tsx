@@ -27,14 +27,20 @@ export interface RestoreDialogProps {
   onRestored: (projectId: string) => void;
 }
 
-/**
- * Restore a project from a backup zip (`backup.import`). The shell has no native picker for zip files yet,
- * so the path is typed; the worker validates it (must be an existing zip with a manifest).
- */
+/** Restore a project from a backup zip (`backup.import`) picked through the native zip dialog. */
 export function RestoreDialog({ open, onClose, onRestored }: RestoreDialogProps) {
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
   const valid = /^\//.test(path.trim()) && /\.zip$/i.test(path.trim());
+
+  const pick = async () => {
+    try {
+      const picked = await api.shell.pickArchiveFile();
+      if (picked) setPath(picked);
+    } catch (err) {
+      handleError(err, "Could not open the file dialog");
+    }
+  };
 
   const run = async () => {
     setBusy(true);
@@ -70,7 +76,12 @@ export function RestoreDialog({ open, onClose, onRestored }: RestoreDialogProps)
         </>
       }
     >
-      <Input label="Backup file (.zip)" value={path} onChange={(e) => setPath(e.target.value)} placeholder="/home/you/Documents/my-project-backup.zip" hint="Absolute path. A native file picker for zip files is not available in this shell version." error={path && !valid ? "Enter an absolute path ending in .zip" : undefined} autoFocus />
+      <div className="flex flex-col gap-3">
+        <Input label="Backup file (.zip)" value={path} onChange={(e) => setPath(e.target.value)} placeholder="/home/you/Documents/my-project-backup.zip" hint="Choose a zip with the native dialog, or type an absolute path." error={path && !valid ? "Enter an absolute path ending in .zip" : undefined} autoFocus />
+        <Button type="button" variant="secondary" onClick={() => void pick()} disabled={busy}>
+          Choose zip…
+        </Button>
+      </div>
     </Dialog>
   );
 }

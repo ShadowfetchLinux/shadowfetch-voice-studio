@@ -11,7 +11,7 @@ entirely on your own machine.
 - **Privacy:** no telemetry, no cloud inference. The only network use is downloading model weights you
   approve; *Offline mode* blocks every request.
 
-> Status: v0.1.0 — see `docs/TEST_REPORT.md` for what has actually been verified on real hardware.
+> Status: v0.1.1 — standalone Linux desktop install; see `docs/TEST_REPORT.md` for what has been verified on real hardware.
 
 ## Requirements (Pop!_OS 24.04 / Ubuntu 24.04)
 
@@ -31,11 +31,13 @@ scripts/bootstrap.sh     # isolated Python environments (asks before optional Ch
 scripts/dev.sh           # launches the desktop app in development mode
 scripts/test.sh          # unit tests (add --real for GPU/model integration tests)
 scripts/build.sh         # .deb (+ AppImage) into src-tauri/target/release/bundle/
+scripts/install-linux.sh # replace the installed desktop app and isolate the runtime
 ```
 
-Installing the `.deb` puts the app in your application menu. On first launch the guided setup checks
-FFmpeg, GPU, audio devices, storage and models, and offers to create the Python runtime under
-`~/.local/share/com.shadowfetch.voicestudio/runtime`.
+Installing the `.deb` (or `scripts/install-linux.sh`) puts **one** launcher in the application menu.
+The engine runtime is a real environment under `~/.local/share/com.shadowfetch.voicestudio/runtime`
+— it is not a symlink back to this checkout. On first launch the guided setup checks FFmpeg, GPU,
+audio devices, storage and models, and creates that runtime if it is missing.
 
 ## Workflow
 
@@ -61,4 +63,4 @@ Local storage is **not** encrypted; treat the data directory like any other priv
 ## Documentation
 
 `docs/ARCHITECTURE.md` · `docs/PROTOCOL.md` · `docs/MODEL_LICENSES.md` · `docs/THIRD_PARTY_NOTICES.md` ·
-`docs/TEST_REPORT.md` · `docs/USER_GUIDE.md`
+`docs/TEST_REPORT.md` · `docs/USER_GUIDE.md` · `docs/FINETUNING.md` · `docs/screenshots/`

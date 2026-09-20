@@ -525,19 +525,27 @@ export const useCreateStore = create<CreateState>((set, get) => {
         return false;
       };
       if (!s.engineId) return fail("Pick an installed engine first.");
-      if (s.segments.length === 0) return fail("Plan the script first (Plan button).");
-      const voice = s.voices.find((v) => v.id === s.voiceId);
-      const referenceId = s.referenceId ?? voice?.selected_reference_id ?? null;
-      if (!referenceId) return fail("This project has no voice reference yet. Pick a voice (and a reference clip) first.");
-      const caps = capsFor(s.engineId);
-      const controls = controlValues(caps?.controls ?? [], s.controls[s.engineId]);
+      if (s.segments.length === 0) {
+        const planned = await get().runPlan();
+        if (!planned) return false;
+      }
+      const cur = get();
+      const projectId = cur.projectId;
+      const engineId = cur.engineId;
+      if (cur.job || !projectId || !engineId) return false;
+      if (cur.segments.length === 0) return fail("Add some script text first.");
+      const voice = cur.voices.find((v) => v.id === cur.voiceId);
+      const referenceId = cur.referenceId ?? voice?.selected_reference_id ?? null;
+      if (!referenceId) return fail("This project has no voice yet. Create or pick a voice first.");
+      const caps = capsFor(engineId);
+      const controls = controlValues(caps?.controls ?? [], cur.controls[engineId]);
 
       let indices: number[] | undefined;
       let label: string | undefined;
       let regenerateAll = false;
-      let title = "Generate full";
+      let title = "Generate";
       if (request.mode === "preview") {
-        indices = [s.segments[0]!.index];
+        indices = [cur.segments[0]!.index];
         label = "preview";
         title = "Generate preview";
       } else if (request.mode === "indices") {
@@ -548,20 +556,18 @@ export const useCreateStore = create<CreateState>((set, get) => {
         regenerateAll = true;
         title = "Regenerate all";
       }
-      const targets = new Set(indices ?? (regenerateAll ? s.segments.map((x) => x.index) : s.segments.filter((x) => statusFromTakes(x.takes, x.selected_take_id) !== "ok").map((x) => x.index)));
+      const targets = new Set(indices ?? (regenerateAll ? cur.segments.map((x) => x.index) : cur.segments.filter((x) => statusFromTakes(x.takes, x.selected_take_id) !== "ok").map((x) => x.index)));
       if (targets.size === 0) {
-        set({ notice: "Every segment already has a take. Use Regenerate all to make new ones." });
+        set({ notice: "Every line already has audio. Use Regenerate all to make new takes." });
         return false;
       }
-      const projectId = s.projectId;
-      const engineId = s.engineId;
       const params: Record<string, unknown> = {
         project_id: projectId,
         engine_id: engineId,
         reference_id: referenceId,
-        language: s.language,
+        language: cur.language,
         settings: controls,
-        ...(caps?.supports_seed && s.seed != null ? { seed: s.seed } : {}),
+        ...(caps?.supports_seed && cur.seed != null ? { seed: cur.seed } : {}),
         ...(indices ? { segment_indices: indices } : {}),
         ...(label ? { take_label: label } : {}),
         ...(regenerateAll ? { regenerate_all: true } : {}),

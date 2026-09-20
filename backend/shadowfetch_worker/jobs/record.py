@@ -1,8 +1,8 @@
 """record.* methods: microphone devices, one recording session at a time, guided scripts.
 
 Sessions live in `ctx.server.state['record_sessions']` (session_id → RecordSession). Input monitoring
-(playing the microphone back while recording) is not implemented: `settings.monitor_input` is reported in the
-start notes as ignored, so there is no feedback risk.
+(playing the microphone back while recording) follows `settings.monitor_input` and plays to
+`settings.output_device_index`. It is off by default to avoid speaker feedback.
 """
 from __future__ import annotations
 
@@ -82,10 +82,16 @@ def start(ctx: Ctx, p: StartParams) -> dict[str, Any]:
         with _sessions_lock:
             sessions.pop(session.session_id, None)
         raise
-    if settings.monitor_input:
-        result["notes"].append("Input monitoring (settings.monitor_input) is not implemented in this version; the microphone "
-                               "is not played back, so there is no feedback.")
     result["monitoring"] = False
+    if settings.monitor_input:
+        try:
+            from ..record.monitor import create_monitor
+            session.attach_monitor(create_monitor(session.sample_rate or sample_rate, settings.output_device_index))
+            result["monitoring"] = True
+            result["notes"].append("Input monitoring is on. Use headphones to avoid a feedback loop.")
+        except Exception as e:  # noqa: BLE001 — recording continues; the user can retry after fixing output
+            log.warning("input monitor failed to start: %s", e)
+            result["notes"].append(f"Input monitoring could not be started ({e}). Recording continues without it.")
     result["script_id"] = p.script_id
     result["take_number"] = p.take_number
     return result

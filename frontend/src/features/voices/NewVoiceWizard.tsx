@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, RotateCcw } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, RotateCcw, Sparkles } from "lucide-react";
 import type { Voice } from "@/lib/protocol";
 import { cx } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
@@ -31,6 +31,7 @@ const STEPS: WizardStep[] = [1, 2, 3, 4];
 /** Four-step "New voice" / "Add reference" workflow with real gating between the steps. */
 export function NewVoiceWizard({ mode, initialSource = null, tagSuggestions = [], onSaved, onCancel }: NewVoiceWizardProps) {
   const settings = useAppStore((s) => s.settings);
+  const navigate = useAppStore((s) => s.navigate);
   const [step, setStep] = useState<WizardStep>(1);
   const [sourceMode, setSourceMode] = useState<SourceMode | null>(initialSource);
   const [source, setSource] = useState<SourceClip | null>(null);
@@ -86,10 +87,17 @@ export function NewVoiceWizard({ mode, initialSource = null, tagSuggestions = []
 
   return (
     <Card
+      id="new-voice-wizard"
+      tabIndex={-1}
       title={title}
-      description={mode.kind === "new" ? "Record or import a clean sample, trim the best 10–15 s, confirm its transcript, then save." : "Same steps as a new voice; the new reference becomes a selectable variant."}
+      description={mode.kind === "new" ? "Record or import a short sample, pick the best few seconds, check the words, then save." : "Same steps as a new voice. The new recording becomes another option for this voice."}
       actions={
         <>
+          {done && mode.kind === "new" && (
+            <Button size="sm" variant="primary" icon={<Sparkles />} onClick={() => navigate("create", { action: "new" })}>
+              Create speech
+            </Button>
+          )}
           {done && (
             <Button size="sm" icon={<RotateCcw />} onClick={reset}>
               Start another
@@ -156,7 +164,7 @@ export function NewVoiceWizard({ mode, initialSource = null, tagSuggestions = []
           Back
         </Button>
         <span className="text-[12.5px] text-muted">
-          {step === 1 && recordingActive ? "Stop or discard the recording before continuing." : step === 1 && !source ? "Record a take or import a file, then pick it to continue." : null}
+          {step === 1 && recordingActive ? "Stop or discard the recording before continuing." : step === 1 && !source ? "Choose Record or Import a file, then pick the take to continue." : null}
           {step === 2 && verdict.level === "error" && verdict.message}
           {step === 3 && !stepOk[3] && (transcript.text.trim() ? "Confirm the transcript to continue." : "Transcribe or type the transcript to continue.")}
         </span>

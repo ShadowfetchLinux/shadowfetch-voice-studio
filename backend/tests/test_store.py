@@ -7,6 +7,7 @@ validates params like the RPC layer and invokes the registered handler directly 
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import sys
 import types
@@ -155,8 +156,47 @@ def install_fake_audio(monkeypatch) -> types.ModuleType:
         sf.write(dst, data[int(start_s * sr):int(end_s * sr)], sr)
         return {"path": str(dst), "duration_s": end_s - start_s}
 
+    def parse_steps(steps):
+        allowed = {"normalize_peak", "trim_silence", "highpass", "gain"}
+        out = []
+        for i, step in enumerate(steps or []):
+            if not isinstance(step, dict) or "op" not in step:
+                raise WorkerError(INVALID_PARAMS, f"processing step {i} must be an object with an 'op' key")
+            if step["op"] not in allowed:
+                raise WorkerError(INVALID_PARAMS, f"Unknown processing op {step['op']!r}")
+            out.append(step)
+        return out
+
+    def apply_processing(src, dst, steps, subtype="FLOAT", ctx=None):
+        parse_steps(steps)
+        data, sr = _read(src)
+        applied = []
+        for step in steps:
+            op = step["op"]
+            if op == "normalize_peak":
+                peak = float(np.abs(data).max())
+                if peak > 0:
+                    data = data / peak * (10 ** (float(step.get("dbfs", -3)) / 20))
+                applied.append({"op": op, "dbfs": step.get("dbfs", -3)})
+            elif op == "gain":
+                data = data * (10 ** (float(step.get("db", 0)) / 20))
+                applied.append({"op": op, "db": step.get("db", 0)})
+            elif op == "highpass":
+                data = data - float(data.mean())
+                applied.append({"op": op, "hz": step.get("hz", 80)})
+            elif op == "trim_silence":
+                applied.append({"op": op})
+        Path(dst).parent.mkdir(parents=True, exist_ok=True)
+        sf.write(dst, data, sr, subtype=subtype)
+        return {"path": str(dst), "duration_s": len(data) / sr, "sample_rate": sr, "channels": 1, "steps": applied}
+
     fake = types.ModuleType("shadowfetch_worker.audio.edit")
-    fake.prepare_reference, fake.assemble, fake.loudness_match_copy, fake.trim = prepare_reference, assemble, loudness_match_copy, trim
+    fake.prepare_reference = prepare_reference
+    fake.assemble = assemble
+    fake.loudness_match_copy = loudness_match_copy
+    fake.trim = trim
+    fake.parse_steps = parse_steps
+    fake.apply_processing = apply_processing
     monkeypatch.setitem(sys.modules, "shadowfetch_worker.audio.edit", fake)
     monkeypatch.setattr(audio_pkg, "edit", fake, raising=False)
     return fake
@@ -329,6 +369,15 @@ def test_reference_add_select_update(server):
     assert upd2["fingerprint"] == upd["fingerprint"] and upd2["label"] == "renamed"
     with pytest.raises(WorkerError):
         call(server, "voices.update_reference", {"reference_id": r2["id"], "patch": {"transcript": ""}})
+    # changing the trim without reconfirming marks the transcript unreviewed
+    confirmed = call(server, "voices.update_reference", {"reference_id": r2["id"], "patch": {"transcript_confirmed": True}})
+    assert confirmed["transcript_confirmed"] is True
+    retimed = call(server, "voices.update_reference", {"reference_id": r2["id"], "patch": {"trim": {"start_s": 0.2, "end_s": 4.8}}})
+    assert retimed["start_s"] == 0.2 and retimed["end_s"] == 4.8
+    assert retimed["transcript_confirmed"] is False
+    still = call(server, "voices.update_reference", {"reference_id": r2["id"],
+                                                    "patch": {"trim": {"start_s": 0.3, "end_s": 4.7}, "transcript_confirmed": True}})
+    assert still["transcript_confirmed"] is True
 
 
 def test_ensure_reference_file_caches_and_rebuilds(server, monkeypatch):
@@ -347,6 +396,37 @@ def test_ensure_reference_file_caches_and_rebuilds(server, monkeypatch):
     p1.unlink()
     ensure_reference_file(server.state, db.require("voice_references", ref["id"]), "fake-engine")
     assert len(calls) == 2 and p1.exists()
+
+
+def test_ensure_reference_file_applies_processing_then_prepares_without_second_normalize(server, monkeypatch):
+    """Stored processing runs at the working rate; prepare_reference must not peak-normalize again."""
+    steps = [{"op": "trim_silence"}, {"op": "highpass", "hz": 80}, {"op": "normalize_peak", "dbfs": -3}]
+    v = make_voice(server, processing=steps)
+    db = server.state["db"]
+    ref = db.require("voice_references", v["selected_reference_id"])
+    assert json.loads(ref["processing_json"]) == steps
+    edit = sys.modules["shadowfetch_worker.audio.edit"]
+    applied: list[list] = []
+    prepared: list[dict] = []
+    real_apply = edit.apply_processing
+    real_prep = edit.prepare_reference
+
+    def capture_apply(src, dst, proc_steps, subtype="FLOAT", ctx=None):
+        applied.append(list(proc_steps))
+        return real_apply(src, dst, proc_steps, subtype=subtype, ctx=ctx)
+
+    def capture_prep(*a, **k):
+        prepared.append(k)
+        return real_prep(*a, **k)
+
+    monkeypatch.setattr(edit, "apply_processing", capture_apply)
+    monkeypatch.setattr(edit, "prepare_reference", capture_prep)
+    dst = ensure_reference_file(server.state, ref, "fake-engine")
+    assert dst.exists() and applied == [steps]
+    assert prepared and prepared[0].get("start_s") is None and prepared[0].get("end_s") is None
+    assert prepared[0].get("normalize_peak_dbfs") is None
+    stored = repo.reference_dict(db.require("voice_references", ref["id"]))["derived"]["fake-engine"]
+    assert stored["processing"] == steps
 
 
 # ---------------------------------------------------------------- projects

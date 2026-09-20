@@ -111,9 +111,28 @@ describe("app boot waits for the worker", () => {
   it("shows the supervisor's error with a restart action when it gave up", async () => {
     const { mod } = await h;
     mod.api.shell.workerStatus.mockResolvedValue({ running: false, restarts: 3, last_error: "python not found", stopped: true });
+    mod.api.shell.runtimeStatus.mockResolvedValue({ found: true, python_found: true, package_found: true });
     render(<App />);
     expect(await screen.findByText("python not found")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Restart worker" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open setup" })).toBeInTheDocument();
+    expect(mod.api.system.settingsGet).not.toHaveBeenCalled();
+  });
+
+  it("opens guided setup when the packaged runtime is missing", async () => {
+    const { mod } = await h;
+    mod.api.shell.workerStatus.mockResolvedValue({
+      running: false,
+      restarts: 0,
+      last_error: "worker runtime not found (python: /data/runtime/envs/main/bin/python, package dir: /usr/lib/app/backend); run the runtime bootstrap",
+      stopped: true,
+    });
+    mod.api.shell.runtimeStatus.mockResolvedValue({ found: false, python_found: false, package_found: true });
+    render(<App />);
+    expect(await screen.findByText("Let's check this machine")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Install environments" })).toBeInTheDocument();
+    expect(useAppStore.getState().bootError).toBeNull();
+    expect(useAppStore.getState().page).toBe("setup");
     expect(mod.api.system.settingsGet).not.toHaveBeenCalled();
   });
 });

@@ -20,6 +20,7 @@ from ..protocol import INVALID_PARAMS, NOT_FOUND, WorkerError
 from ..rpc import Ctx, method
 from ..store import repo
 from ..store.db import loads
+from ..system.diagnostics import gpu_info, mem_info
 
 
 class DatasetExport(BaseModel):
@@ -113,3 +114,56 @@ def export_dataset(ctx: Ctx, p: DatasetExport) -> dict[str, Any]:
     os.chmod(root, 0o700)
     return {"path": str(root), "jsonl": str(jsonl), "samples": len(rows), "skipped": skipped, "reference": str(ref_out),
             "total_seconds": round(sum(r["duration_s"] for r in rows), 1)}
+
+
+# ---------------------------------------------------------------- memory preflight (no training)
+
+def estimate_finetune_bytes(params: float, batch: int = 1, seq: int = 1024) -> dict[str, float]:
+    """VRAM estimate for official sft_12hz.py (bf16 + fp32 AdamW, no LoRA). Same formula as scripts/finetune_preflight.py."""
+    weights = params * 2
+    grads = params * 2
+    adam = params * 4 * 2
+    fp32_master = params * 4
+    activations = batch * seq * 2048 * 28 * 2 * 8
+    total = weights + grads + adam + fp32_master + activations
+    return {"weights_bf16": weights, "grads": grads, "adam_states": adam, "fp32_master": fp32_master,
+            "activations": activations, "total": total}
+
+
+class DatasetPreflight(BaseModel):
+    params: float = Field(default=1.7e9, gt=1e6)
+    batch: int = Field(default=1, ge=1)
+    seq: int = Field(default=1024, ge=64)
+
+
+@method("dataset.preflight", params=DatasetPreflight)
+def preflight(_ctx: Ctx, p: DatasetPreflight) -> dict[str, Any]:
+    """Estimate whether official full-parameter Qwen fine-tuning fits this GPU. Does not train."""
+    gpus = gpu_info()
+    gpu = gpus[0] if gpus else {}
+    total = int(gpu.get("vram_total_bytes") or 0)
+    used = int(gpu.get("vram_used_bytes") or 0)
+    free = max(total - used, 0)
+    name = str(gpu.get("name") or "none")
+    est = estimate_finetune_bytes(p.params, p.batch, p.seq)
+    small = estimate_finetune_bytes(0.6e9, p.batch, p.seq)["total"]
+    need = est["total"]
+    mem = mem_info()
+    fits = bool(total and need < total * 0.9)
+    host_peak = p.params * 2 * 2
+    if not fits:
+        verdict = (f"Full-parameter fine-tuning is estimated to need {need / 1e9:.0f} GB of VRAM; "
+                   f"this GPU has {total / 1e9:.0f} GB — it will NOT fit. The official script offers no LoRA/8-bit path; "
+                   f"use a bigger GPU, or the 0.6B Base model (≈ {small / 1e9:.0f} GB, still tight).")
+    else:
+        verdict = "Estimated to fit (tight); expect OOM on longer samples — start with batch 1."
+    return {
+        "gpu": name,
+        "vram_total_gb": round(total / 1e9, 1),
+        "vram_free_gb": round(free / 1e9, 1),
+        "estimate_gb": {k: round(v / 1e9, 1) for k, v in est.items()},
+        "host_ram_peak_gb": round(host_peak / 1e9, 1),
+        "host_ram_free_gb": round(mem.get("available_bytes", 0) / 1e9, 1) if mem.get("available_bytes") else None,
+        "fits": fits,
+        "verdict": verdict,
+    }

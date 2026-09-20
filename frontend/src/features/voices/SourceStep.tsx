@@ -100,8 +100,8 @@ export function SourceStep({ mode, onModeChange, source, onSource, recordingActi
   return (
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3" role="radiogroup" aria-label="Audio source">
-        <ModeCard active={mode === "record"} icon={<Mic />} title="Record with microphone" text="Read a short guided script; the worker writes a 24-bit WAV while you speak." onClick={() => onModeChange("record")} disabled={recordingActive} />
-        <ModeCard active={mode === "import"} icon={<FileAudio />} title="Import audio (WAV/MP3/FLAC)" text="Use an existing clean recording. The original is copied unchanged." onClick={() => onModeChange("import")} disabled={recordingActive} />
+        <ModeCard active={mode === "record"} icon={<Mic />} title="Record" text="Read a short script with your microphone." onClick={() => onModeChange("record")} disabled={recordingActive} />
+        <ModeCard active={mode === "import"} icon={<FileAudio />} title="Import a file" text="Use an existing WAV, MP3 or FLAC recording." onClick={() => onModeChange("import")} disabled={recordingActive} />
       </div>
 
       {mode === "record" && <Recorder onUseTake={(t) => onSource(takeToClip(t))} activeAssetId={source?.origin === "recording" ? source.asset_id : null} onActiveChange={onRecordingActiveChange} />}
@@ -112,7 +112,7 @@ export function SourceStep({ mode, onModeChange, source, onSource, recordingActi
             <Button variant="primary" icon={<FolderOpen />} loading={picking} onClick={() => void pickFiles()}>
               Choose audio files…
             </Button>
-            <span className="text-[12.5px] text-muted">WAV, MP3 or FLAC, up to 2 GB. Use the dialog or drop files anywhere on the window.</span>
+            <span className="text-[12.5px] text-muted">WAV, MP3 or FLAC. Use the dialog or drop files on the window.</span>
           </div>
           {jobs.length > 0 && (
             <ul className="flex flex-col gap-2" aria-label="Imported files">

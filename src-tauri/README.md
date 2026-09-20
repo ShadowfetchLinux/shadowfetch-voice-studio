@@ -52,7 +52,7 @@ from the worker unchanged.
 | `worker_cancel` | `{id}` → `bool` (false when nothing is pending under that id) |
 | `worker_status` / `worker_restart` | → status snapshot |
 | `app_paths` | → `{data, config, cache, resource, runtime_root}` |
-| `runtime_status` | → `{python, pythonpath, mode, found, python_found, package_found, source, runtime_root, bootstrap_script, bootstrap_script_found, bootstrap_running}` |
+| `runtime_status` | → `{python, pythonpath, mode, found, python_found, package_found, source, runtime_root, bootstrap_script, bootstrap_script_found, bootstrap_running, standalone}` |
 | `runtime_bootstrap` | `{withChatterbox?, autoInstallUv?}` → exit code; streams `runtime://log` `{stream, line}`; `BUSY` while running |
 | `pick_audio_files` | → `string[]` (wav/mp3/flac, multi-select) |
 | `pick_text_file` | → `string \| null`; only these paths may be read with `read_text_file` |

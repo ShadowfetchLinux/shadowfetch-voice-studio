@@ -84,11 +84,18 @@ export default function App() {
                 <h2>The worker did not respond</h2>
               </div>
               <p className="text-sm text-muted break-words">{bootError}</p>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Button variant="primary" onClick={() => void boot()}>
                   Try again
                 </Button>
                 <Button onClick={() => void api.shell.workerRestart().then(() => boot())}>Restart worker</Button>
+                <Button
+                  onClick={() => {
+                    useAppStore.setState({ bootError: null, page: "setup", booted: true });
+                  }}
+                >
+                  Open setup
+                </Button>
               </div>
             </div>
           ) : (

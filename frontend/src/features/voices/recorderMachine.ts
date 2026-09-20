@@ -56,7 +56,7 @@ export interface RecorderState {
   sessionId: string | null;
   negotiated: RecorderStartResult["negotiated"] | null;
   notes: string[];
-  /** Whether the worker plays the microphone back (always false in this version; shown honestly). */
+  /** Whether the worker is playing the microphone back (`settings.monitor_input`). */
   monitoring: boolean;
   level: RecordLevel | null;
   /** Seconds captured so far, from the last level event. */

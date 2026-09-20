@@ -27,10 +27,35 @@ class Runtime:
             return Path(sys.executable)
         override = os.environ.get(f"SFVS_ENV_{env_id.upper()}_PYTHON")
         cands = [Path(override)] if override else []
-        cands += [self.root / "envs" / env_id / "bin" / "python", BACKEND_DIR / "envs" / env_id / "bin" / "python"]
+        cands += [self.root / "envs" / env_id / "bin" / "python"]
+        if checkout := self._checkout_env(env_id):
+            cands.append(checkout)
         for c in cands:
-            if c.exists():
+            if self._usable_env_python(c) is not None:
                 return c
+        return None
+
+    def _checkout_env(self, env_id: str) -> Path | None:
+        """Dev-only: `backend/envs/<id>` when this package is a writable checkout, not `/usr/lib`."""
+        cand = BACKEND_DIR / "envs" / env_id / "bin" / "python"
+        if cand.exists() and os.access(BACKEND_DIR, os.W_OK):
+            return cand
+        return None
+
+    def _usable_env_python(self, path: Path) -> Path | None:
+        """Refuse `runtime/envs/<id>` when it is a symlink into another tree (the old checkout link)."""
+        if not path.exists():
+            return None
+        env_dir = path.parent.parent
+        if not env_dir.is_symlink():
+            return path
+        try:
+            target = env_dir.resolve()
+            root = self.root.resolve()
+        except OSError:
+            return None
+        if target == root or root in target.parents:
+            return path
         return None
 
     def env_for_engine(self, engine_id: str) -> str:

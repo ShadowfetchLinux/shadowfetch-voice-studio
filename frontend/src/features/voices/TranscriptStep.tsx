@@ -62,7 +62,7 @@ export function TranscriptStep({ source, selection, transcript, dispatch, langua
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-3 flex-wrap">
         <Button variant="primary" icon={<Captions />} loading={busy} disabled={!selection} onClick={() => void transcribe()}>
-          {transcript.text ? "Re-transcribe selection" : "Transcribe selection"}
+          {transcript.text ? "Transcribe again" : "Fill in the words"}
         </Button>
         {busy && (
           <Button variant="ghost" icon={<X />} onClick={() => void reqRef.current?.cancel()}>
@@ -108,18 +108,18 @@ export function TranscriptStep({ source, selection, transcript, dispatch, langua
       )}
 
       <Textarea
-        label="Transcript of the selection"
+        label="Words spoken in the selection"
         rows={6}
         value={transcript.text}
         onChange={(e) => dispatch({ type: "edit", text: e.target.value, key })}
         placeholder="Exactly what is said in the selected range — punctuation helps."
-        hint={transcript.source === "asr" ? `Transcribed by ${transcript.asrModel ?? "ASR"}${transcript.language ? ` (${transcript.language})` : ""}. Fix any mistakes before confirming.` : transcript.source === "edited" ? "Typed / edited by you." : "Run transcription or type the words yourself."}
+        hint={transcript.source === "asr" ? `Filled in automatically${transcript.language ? ` (${transcript.language})` : ""}. Fix any mistakes before confirming.` : transcript.source === "edited" ? "Typed / edited by you." : "Fill in automatically or type the words yourself."}
         textareaClassName="text-[15px] leading-relaxed"
       />
 
       <Checkbox
-        label="I reviewed this transcript and it matches the selected audio word for word"
-        description="Required. The reference transcript conditions the engine; mismatches degrade the cloned voice."
+        label="I checked these words against the audio"
+        description="Required. The engine needs the exact words spoken in the selected part."
         checked={transcript.reviewed}
         disabled={!transcript.text.trim() || stale}
         onChange={(v) => dispatch({ type: "review", reviewed: v })}

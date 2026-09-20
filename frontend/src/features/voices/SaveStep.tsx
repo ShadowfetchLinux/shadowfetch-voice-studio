@@ -5,7 +5,7 @@ import type { AddReferenceParams, Capabilities, Progress, Reference, Voice, Voic
 import { Button } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Field";
 import { Checkbox } from "@/components/ui/Toggle";
-import { ProgressBar } from "@/components/ui/Feedback";
+import { Collapsible, ProgressBar } from "@/components/ui/Feedback";
 import type { Selection } from "@/components/audio";
 import { handleError, toast, useAppStore } from "@/store/appStore";
 import { TagChipsInput } from "./TagChipsInput";
@@ -118,17 +118,22 @@ export function SaveStep({ mode, source, selection, transcript, processing, engi
         )}
       </div>
       {mode.kind === "new" && <TagChipsInput value={tags} onChange={setTags} suggestions={tagSuggestions} disabled={!!saved} hint="Optional. Used for filtering." />}
-      <Select label="Engine preference" value={engineId} options={engineOptions} onChange={(e) => onEngineChange(e.target.value)} disabled={!!saved} hint="Which engine the reference is checked against and prepared for." />
 
       {mode.kind === "new" ? (
-        <Checkbox label="This is my own voice or I have permission to use it" description="Required. Cloning someone's voice without consent may be illegal where you live." checked={rights} onChange={setRights} disabled={!!saved} />
+        <Checkbox label="This is my own voice or I have permission to use it" description="Required. Do not clone someone else's voice without their permission." checked={rights} onChange={setRights} disabled={!!saved} />
       ) : (
         <>
-          <Checkbox label="Use this reference as the active one" description="Generation uses the voice's active reference." checked={setActive} onChange={setSetActive} disabled={!!saved} />
+          <Checkbox label="Use this recording as the active one" description="Create uses the voice's active recording." checked={setActive} onChange={setSetActive} disabled={!!saved} />
           <p className="text-[12.5px] text-muted">Rights were confirmed when the voice "{mode.voice.name}" was created.</p>
         </>
       )}
-      <Checkbox label="Prepare for the engine now" description="Runs engine.prepare_reference right after saving (loads the engine on the GPU if needed). You can also do this later from Create." checked={prepareNow} onChange={setPrepareNow} disabled={!!saved} />
+
+      <Collapsible title="Advanced" description="Engine check and optional GPU prepare — you can skip this." className="shadow-none">
+        <div className="flex flex-col gap-3 pt-1">
+          <Select label="Engine to check against" value={engineId} options={engineOptions} onChange={(e) => onEngineChange(e.target.value)} disabled={!!saved} hint="Used to validate the trim length. Generation can still use another engine later." />
+          <Checkbox label="Prepare for the engine now" description="Optional. Loads the engine so the first generate is a bit faster. You can also do this later from Create." checked={prepareNow} onChange={setPrepareNow} disabled={!!saved} />
+        </div>
+      </Collapsible>
 
       <div className="flex items-center gap-3 flex-wrap">
         <Button variant="primary" size="lg" icon={<Save />} loading={saving} disabled={!canSave} onClick={() => void save()}>

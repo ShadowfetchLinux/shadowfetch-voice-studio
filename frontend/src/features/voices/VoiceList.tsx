@@ -16,7 +16,8 @@ export interface VoiceListProps {
   error: string | null;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
-  onNewVoice: () => void;
+  /** Start the create-voice flow. Pass `record` / `import` to skip the picker. */
+  onNewVoice: (source?: "record" | "import") => void;
   onAddReference: (voice: Voice) => void;
   /** Called after any mutation so the owner reloads the list. */
   onChanged: () => void;
@@ -52,7 +53,7 @@ export function VoiceList({ voices, loading, error, selectedId, onSelect, onNewV
       title="Your voices"
       description={voices ? `${voices.length} saved` : undefined}
       actions={
-        <Button size="sm" variant="primary" icon={<Plus />} onClick={onNewVoice}>
+        <Button size="sm" variant="primary" icon={<Plus />} onClick={() => onNewVoice()}>
           New voice
         </Button>
       }
@@ -67,7 +68,20 @@ export function VoiceList({ voices, loading, error, selectedId, onSelect, onNewV
           Could not load voices: {error}
         </p>
       ) : !voices || voices.length === 0 ? (
-        <EmptyState compact icon={<Mic />} title="No voices yet" text="Record a short sample or import a clean recording with the workflow on the right. Nothing is stored until you save." />
+        <EmptyState
+          compact
+          icon={<Mic />}
+          title="No voices yet"
+          text="Record a short sample with your microphone, or import a clean audio file. Nothing is stored until you save."
+          action={
+            <>
+              <Button variant="primary" icon={<Mic />} onClick={() => onNewVoice("record")}>
+                Record
+              </Button>
+              <Button onClick={() => onNewVoice("import")}>Import file</Button>
+            </>
+          }
+        />
       ) : (
         <ul className="divide-y divide-border" aria-label="Saved voices">
           {voices.map((v) => {
@@ -82,7 +96,7 @@ export function VoiceList({ voices, loading, error, selectedId, onSelect, onNewV
                 <button type="button" onClick={() => onSelect(selected ? null : v.id)} aria-current={selected ? "true" : undefined} className="min-w-0 flex-1 text-left rounded-[6px] py-0.5">
                   <span className="block text-sm font-medium truncate">{v.name}</span>
                   <span className="block text-[12.5px] text-muted truncate">
-                    {v.language.toUpperCase()} · {dur != null ? `reference ${formatDuration(dur)}` : "no reference"}
+                    {v.language.toUpperCase()} · {dur != null ? formatDuration(dur) : "no recording"}
                     {(v.references?.length ?? 0) > 1 ? ` · ${v.references!.length} variants` : ""} · {formatRelative(v.updated_at)}
                   </span>
                   {(v.tags.length > 0 || ref?.label) && (

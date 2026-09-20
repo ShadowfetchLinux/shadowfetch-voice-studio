@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Reference, Settings, Voice } from "@/lib/protocol";
 
@@ -49,5 +49,57 @@ describe("<VoiceDetail /> re-transcribe", () => {
     render(<VoiceDetail voice={voice([ref({ asset: null })])} onAddReference={() => {}} onChanged={() => {}} />);
     expect(screen.queryByRole("button", { name: "Re-transcribe" })).not.toBeInTheDocument();
     expect(screen.getByText(/Re-transcribe is unavailable/)).toBeInTheDocument();
+  });
+
+  it("saves an edited transcript through voices.update_reference", async () => {
+    const { mod } = await h;
+    const user = userEvent.setup();
+    const onChanged = vi.fn();
+    render(<VoiceDetail voice={voice([ref({})])} onAddReference={() => {}} onChanged={onChanged} />);
+    await user.click(screen.getByRole("button", { name: "Edit transcript" }));
+    const dialog = await screen.findByRole("dialog", { name: "Edit reference transcript" });
+    const box = within(dialog).getByLabelText("Transcript");
+    fireEvent.change(box, { target: { value: "Corrected words." } });
+    await user.click(within(dialog).getByText(/I reviewed this transcript/));
+    await user.click(within(dialog).getByRole("button", { name: "Save transcript" }));
+    await waitFor(() => expect(mod.api.voices.updateReference).toHaveBeenCalledWith({
+      reference_id: "r1",
+      patch: { transcript: "Corrected words.", transcript_source: "edited", transcript_confirmed: true },
+    }));
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("shows rights confirmation and processing history, and can retim the reference", async () => {
+    const { mod } = await h;
+    const user = userEvent.setup();
+    const onChanged = vi.fn();
+    const processed = ref({ processing: [{ op: "trim_silence" }, { op: "highpass", hz: 80 }], transcript_confirmed: true });
+    render(<VoiceDetail voice={voice([processed])} onAddReference={() => {}} onChanged={onChanged} />);
+    expect(screen.getByTestId("voice-rights")).toHaveTextContent("Rights confirmed");
+    expect(screen.getByTestId("processing-history")).toHaveTextContent("trim silence → high-pass 80 Hz");
+    await user.click(screen.getByRole("button", { name: "Edit trim" }));
+    const dialog = await screen.findByRole("dialog", { name: "Edit reference trim" });
+    fireEvent.change(within(dialog).getByLabelText("Start (seconds)"), { target: { value: "2" } });
+    fireEvent.change(within(dialog).getByLabelText("End (seconds)"), { target: { value: "14" } });
+    await user.click(within(dialog).getByRole("button", { name: "Save trim" }));
+    await waitFor(() => expect(mod.api.voices.updateReference).toHaveBeenCalledWith({
+      reference_id: "r1",
+      patch: { trim: { start_s: 2, end_s: 14 } },
+    }));
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("opens the dataset workspace and exports after preflight", async () => {
+    const { mod } = await h;
+    const user = userEvent.setup();
+    mod.api.shell.pickDirectory.mockResolvedValue("/tmp/ds");
+    mod.api.dataset.export.mockResolvedValue({ path: "/tmp/ds/Me", jsonl: "/tmp/ds/Me/train_raw.jsonl", samples: 1, skipped: [], reference: "/tmp/ds/Me/ref.wav", total_seconds: 12 });
+    render(<VoiceDetail voice={voice([ref({ transcript_confirmed: true })])} onAddReference={() => {}} onChanged={() => {}} />);
+    await user.click(screen.getByRole("button", { name: "Dataset workspace" }));
+    const dialog = await screen.findByRole("dialog", { name: "Fine-tuning dataset" });
+    await waitFor(() => expect(mod.api.dataset.preflight).toHaveBeenCalled());
+    expect(within(dialog).getAllByText(/does not fit/i).length).toBeGreaterThan(0);
+    await user.click(within(dialog).getByRole("button", { name: "Export dataset" }));
+    await waitFor(() => expect(mod.api.dataset.export).toHaveBeenCalledWith({ voice_id: "v1", out_dir: "/tmp/ds" }, expect.objectContaining({ onProgress: expect.any(Function) })));
   });
 });

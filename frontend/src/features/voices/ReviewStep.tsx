@@ -81,6 +81,34 @@ export function ReviewStep({ source, caps, capsError, selection, onSelectionChan
   // a processing preview is bound to the selection + options it was made for
   useEffect(() => setPreview(null), [selection, processing]);
 
+  const [trimHistory, setTrimHistory] = useState<Selection[]>([]);
+  const commitSelection = (sel: Selection | null) => {
+    if (selection && (!sel || sel.start !== selection.start || sel.end !== selection.end)) {
+      setTrimHistory((h) => [...h, selection]);
+    }
+    onSelectionChange(sel);
+  };
+  const undoTrim = () => {
+    const prev = trimHistory[trimHistory.length - 1];
+    if (!prev) return;
+    setTrimHistory((h) => h.slice(0, -1));
+    onSelectionChange(prev);
+  };
+  const undoTrimRef = useRef(undoTrim);
+  undoTrimRef.current = undoTrim;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+        e.preventDefault();
+        undoTrimRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const player = usePlayer({ path: preview?.path ?? source.path, selection: preview ? null : selection, restrictToSelection: !preview });
 
   const runPreview = async () => {
@@ -113,7 +141,7 @@ export function ReviewStep({ source, caps, capsError, selection, onSelectionChan
         <span className="text-muted">
           {caps && ref ? (
             <>
-              <strong className="text-text">{caps.name}</strong> needs {ref.min_seconds}–{ref.max_seconds} s of reference audio (recommended {ref.recommended_seconds[0]}–{ref.recommended_seconds[1]} s, {ref.sample_rate} Hz {ref.channels === 1 ? "mono" : `${ref.channels} ch`}).
+              Use about {ref.recommended_seconds[0]}–{ref.recommended_seconds[1]} s of clean speech ({ref.min_seconds}–{ref.max_seconds} s is OK).
             </>
           ) : capsError ? (
             <span className="text-warn">Engine limits unavailable: {capsError}</span>
@@ -136,10 +164,13 @@ export function ReviewStep({ source, caps, capsError, selection, onSelectionChan
         </div>
       ) : (
         <>
-          <Waveform peaks={peaks.peaks} duration={peaks.duration} currentTime={player.currentTime} onSeek={player.seek} selectable selection={selection} onSelectionChange={onSelectionChange} minSelection={0.5} label={`Waveform of ${source.label}`} />
+          <Waveform peaks={peaks.peaks} duration={peaks.duration} currentTime={player.currentTime} onSeek={player.seek} selectable selection={selection} onSelectionChange={commitSelection} minSelection={0.5} label={`Waveform of ${source.label}`} />
           <div className="flex items-center gap-2 flex-wrap">
             <Button size="sm" variant="primary" icon={<Play />} onClick={() => void player.playSelection()} disabled={!selection || !!preview}>
               Play selection
+            </Button>
+            <Button size="sm" variant="ghost" icon={<Undo2 />} disabled={trimHistory.length === 0} onClick={undoTrim} title="Undo last trim (Ctrl+Z)">
+              Undo trim
             </Button>
             <PlayerBar player={player} hasSelection={!!selection && !preview} compact className="flex-1 min-w-[320px]" />
           </div>
@@ -184,7 +215,7 @@ export function ReviewStep({ source, caps, capsError, selection, onSelectionChan
             )}
           </div>
           <p className="text-[12px] text-muted">
-            Saved with the voice: peak normalization is applied when the engine reference is prepared. Trim silence and high-pass are preview-only in this worker version (they are recorded with the reference but not yet applied to the derived file).
+            Saved with the voice: trim silence, high-pass and peak normalization are applied to a derived copy (same order as this preview). The original recording is never modified.
           </p>
         </div>
       </Collapsible>

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Shadowfetch Voice Studio
+GenericName=Voice Studio
+Comment=Private, local voice cloning studio
+Exec=/usr/bin/shadowfetch-voice-studio
+TryExec=/usr/bin/shadowfetch-voice-studio
+Icon=com.shadowfetch.voicestudio
+Terminal=false
+StartupNotify=true
+StartupWMClass=com.shadowfetch.voicestudio
+Categories=AudioVideo;Audio;AudioVideoEditing;
+Keywords=voice;clone;tts;text to speech;narration;audio;recording;speech;studio;

@@ -1,6 +1,6 @@
 [package]
 name = "shadowfetch-voice-studio"
-version = "0.1.0"
+version = "0.1.1"
 description = "Shadowfetch Voice Studio - private, local voice cloning desktop app"
 authors = ["Shadowfetch"]
 license = "MIT"

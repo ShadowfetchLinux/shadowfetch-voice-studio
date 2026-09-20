@@ -24,9 +24,9 @@ export function VoicePanel() {
   if (voices.length === 0) {
     return (
       <div className="flex flex-col gap-2">
-        <p className="text-sm text-muted">No voices yet. Record or import a reference clip first.</p>
-        <Button size="sm" icon={<Mic />} onClick={() => navigate("voices")} className="self-start">
-          Go to Voices
+        <p className="text-sm text-muted">No voices yet. Record or import a short sample first.</p>
+        <Button size="sm" variant="primary" icon={<Mic />} onClick={() => navigate("voices", { action: "new" })} className="self-start">
+          New voice
         </Button>
       </div>
     );
@@ -36,7 +36,7 @@ export function VoicePanel() {
     <div className="flex flex-col gap-3">
       <Select
         label="Voice"
-        options={voices.filter((v) => !v.archived || v.id === voiceId).map((v) => ({ value: v.id, label: `${v.name}${v.references?.length ? ` (${v.references.length} ref${v.references.length === 1 ? "" : "s"})` : " (no reference)"}` }))}
+            options={voices.filter((v) => !v.archived || v.id === voiceId).map((v) => ({ value: v.id, label: `${v.name}${v.references?.length ? ` (${v.references.length} recording${v.references.length === 1 ? "" : "s"})` : " (no recording)"}` }))}
         placeholder="Choose a voice…"
         value={voiceId ?? ""}
         disabled={!hasProject || busy}
@@ -47,32 +47,39 @@ export function VoicePanel() {
       />
       {voice && references.length > 0 && (
         <Select
-          label="Reference clip"
+          label="Recording"
           options={references.map((r, i) => ({ value: r.id, label: `${r.label || `Reference ${i + 1}`} · ${formatDuration(r.end_s - r.start_s)}` }))}
           value={reference?.id ?? ""}
           disabled={!hasProject || busy}
           onChange={(e) => void setVoice(voice.id, e.target.value)}
         />
       )}
-      {voice && references.length === 0 && <p className="text-[12.5px] text-warn">This voice has no reference clip yet. Add one on the Voices page.</p>}
+      {voice && references.length === 0 && (
+        <div className="flex flex-col gap-2">
+          <p className="text-[12.5px] text-warn">This voice has no recording yet.</p>
+          <Button size="sm" icon={<Mic />} onClick={() => navigate("voices", { voiceId: voice.id, action: "new" })} className="self-start">
+            Add recording
+          </Button>
+        </div>
+      )}
       {reference && (
         <div className="rounded-md bg-panel-alt border border-border px-3 py-2 text-[12.5px] flex flex-col gap-1">
           <p className="tabular-nums">
-            <span className="text-muted">Reference length:</span> {formatDuration(reference.end_s - reference.start_s)}
-            {reference.transcript_confirmed === false && <span className="text-warn ml-2">transcript not confirmed</span>}
+            <span className="text-muted">Sample length:</span> {formatDuration(reference.end_s - reference.start_s)}
+            {reference.transcript_confirmed === false && <span className="text-warn ml-2">words not confirmed</span>}
           </p>
           <p>
-            <span className="text-muted">Reference transcript:</span>{" "}
+            <span className="text-muted">Words in the sample:</span>{" "}
             {reference.transcript ? (
               <span className="italic">
                 “{reference.transcript.slice(0, EXCERPT).trim()}
                 {reference.transcript.length > EXCERPT ? "…" : ""}”
               </span>
             ) : (
-              <span className="text-warn">empty — engines that need a transcript will refuse to generate</span>
+              <span className="text-warn">empty — add the words spoken in the sample before generating</span>
             )}
           </p>
-          <p className="text-muted">The reference transcript is what was said in the clip. It is not your script and does not need to match it.</p>
+          <p className="text-muted">These are the words spoken in the sample, not your script. They do not need to match.</p>
         </div>
       )}
     </div>

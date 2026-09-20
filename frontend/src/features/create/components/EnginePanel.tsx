@@ -107,7 +107,7 @@ export function EnginePanel({ engines, caps }: EnginePanelProps) {
             value={engineId && installed.some((e) => e.id === engineId) ? engineId : ""}
             disabled={disabled}
             onChange={(e) => e.target.value && setEngine(e.target.value)}
-            hint={caps ? `${caps.name} ${caps.version} · ${caps.output_sample_rate} Hz output · ≤ ${caps.max_chars_per_request} chars per request${caps.watermark ? ` · watermark: ${caps.watermark}` : ""}` : undefined}
+            hint={caps ? `${caps.name} · up to ${caps.max_chars_per_request} characters per line` : undefined}
           />
           <div className="flex items-center gap-2 flex-wrap">
             <StatusPill tone={liveState === "loaded" ? "success" : liveState === "loading" ? "warn" : liveState === "error" ? "danger" : "neutral"} dot pulse={liveState === "loading"} size="sm">
@@ -142,7 +142,7 @@ export function EnginePanel({ engines, caps }: EnginePanelProps) {
 
       {caps && caps.post_processing.length > 0 && (
         <div className="flex flex-col gap-3">
-          <SectionTitle hint="App-side processing, not an engine parameter. Values are saved with the project; this worker build exposes no method that applies them yet.">Post-processing</SectionTitle>
+          <SectionTitle hint="Optional extras saved with the project.">Post-processing</SectionTitle>
           <CapabilityControls specs={caps.post_processing} values={postVals} onChange={(id, v) => engineId && setPostProcessing(engineId, id, v)} disabled={disabled} advancedTitle="Advanced post-processing" />
         </div>
       )}

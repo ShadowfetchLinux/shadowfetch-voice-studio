@@ -161,19 +161,22 @@ def ensure_reference_file(state: dict[str, Any], reference_row, engine_id: str) 
     dst = repo.reference_dir(paths, ref["voice_id"], ref["id"]) / f"reference.{engine_id}.wav"
     dst.parent.mkdir(parents=True, exist_ok=True)
     from ..audio import edit
-    # The stored processing list (normalize / trim_silence / highpass / gain) is part of the reference fingerprint and is
-    # what the user auditioned with audio.preview_processing, so the derived engine file must apply exactly those steps.
+    # Apply the stored processing list at the working-file rate (same order as audio.preview_processing),
+    # then resample/channel-fit for the engine. Peak-normalise is one of those steps — never applied twice.
     steps = [dict(x) for x in (loads(ref.get("processing_json"), []) or []) if isinstance(x, dict) and x.get("op")]
     if hasattr(edit, "parse_steps"):
         edit.parse_steps(steps)
-    if steps and hasattr(edit, "apply_processing"):
-        tmp = dst.with_name(dst.stem + ".raw.tmp.wav")
-        edit.prepare_reference(Path(src), tmp, caps.reference.sample_rate, channels=caps.reference.channels,
-                               start_s=ref["start_s"], end_s=ref["end_s"], normalize_peak_dbfs=None)
+    if steps and hasattr(edit, "apply_processing") and hasattr(edit, "trim"):
+        cut = dst.with_name(dst.stem + ".cut.tmp.wav")
+        proc = dst.with_name(dst.stem + ".proc.tmp.wav")
         try:
-            info = edit.apply_processing(tmp, dst, steps, subtype="PCM_24")
+            edit.trim(Path(src), cut, float(ref["start_s"]), float(ref["end_s"]))
+            edit.apply_processing(cut, proc, steps, subtype="FLOAT")
+            info = edit.prepare_reference(proc, dst, caps.reference.sample_rate, channels=caps.reference.channels,
+                                          start_s=None, end_s=None, normalize_peak_dbfs=None)
         finally:
-            tmp.unlink(missing_ok=True)
+            cut.unlink(missing_ok=True)
+            proc.unlink(missing_ok=True)
     else:
         info = edit.prepare_reference(Path(src), dst, caps.reference.sample_rate, channels=caps.reference.channels,
                                       start_s=ref["start_s"], end_s=ref["end_s"],
@@ -339,12 +342,16 @@ def update_reference(ctx: Ctx, p: UpdateReference) -> dict[str, Any]:
         trim = Trim.model_validate(patch["trim"])
         _validate_trim(db.require("assets", ref["asset_id"]), trim)
         fields.update({"start_s": float(trim.start_s), "end_s": float(trim.end_s)})
+        if "transcript_confirmed" not in patch:
+            fields["transcript_confirmed"] = 0  # selection change invalidates the old review
     if "processing" in patch:
         fields["processing_json"] = dumps(list(patch["processing"] or []))
+        if "transcript_confirmed" not in patch:
+            fields["transcript_confirmed"] = 0
     for k in ("label", "asr_model"):
         if k in patch:
             fields[k] = patch[k]
-    if "transcript_confirmed" in patch and "transcript_confirmed" not in fields:
+    if "transcript_confirmed" in patch:
         fields["transcript_confirmed"] = int(bool(patch["transcript_confirmed"]))
     if "transcript_source" in patch and "transcript_source" not in fields:
         fields["transcript_source"] = str(patch["transcript_source"])

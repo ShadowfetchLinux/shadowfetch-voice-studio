@@ -32,13 +32,23 @@ describe("App shell with the browser preview mock", () => {
 
   it("navigates with the sidebar and number-key shortcuts", async () => {
     const user = userEvent.setup();
-    await renderApp();
+    const { useAppStore } = await renderApp();
     await waitFor(() => expect(screen.getByText("Let's check this machine")).toBeInTheDocument(), { timeout: 4000 });
     await user.click(screen.getByRole("button", { name: /^Home/ }));
-    expect(screen.getByText("Record a voice")).toBeInTheDocument();
-    expect(screen.getByText("Import audio")).toBeInTheDocument();
+    expect(screen.getByText("Three steps")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /New voice/ }).length).toBeGreaterThan(0);
     expect(screen.getByText("Create speech")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText(/Preview project 1 \(mock\)/)).toBeInTheDocument(), { timeout: 4000 });
+
+    await user.click(screen.getByRole("region", { name: "Get started" }).querySelector("button")!);
+    expect(await screen.findByRole("heading", { name: "New voice" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Record/ })).toBeInTheDocument();
+    expect(useAppStore.getState()).toMatchObject({ page: "voices", params: { action: "new" } });
+
+    await user.click(screen.getByRole("button", { name: /^Home/ }));
+    await user.keyboard("n");
+    await waitFor(() => expect(useAppStore.getState()).toMatchObject({ page: "voices", params: { action: "new" } }));
+    expect(await screen.findByRole("heading", { name: "New voice" })).toBeInTheDocument();
 
     await user.keyboard("5");
     await waitFor(() => expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument());

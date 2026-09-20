@@ -1,8 +1,10 @@
 """Adapters' capabilities() must be importable and truthful without torch (the main worker has no torch)."""
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -47,7 +49,9 @@ def test_capabilities_import_without_torch():
         "bad = [m for m in ('torch', 'qwen_tts', 'chatterbox', 'transformers', 'faster_whisper') if m in sys.modules]\n"
         "print('BAD=' + ','.join(bad))\n"
     )
-    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
+    backend = str(Path(__file__).resolve().parent.parent)
+    env = {**os.environ, "PYTHONPATH": backend + os.pathsep + os.environ.get("PYTHONPATH", "")}
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60, env=env)
     assert r.returncode == 0, r.stderr
     assert "BAD=\n" in r.stdout or r.stdout.strip().endswith("BAD="), r.stdout
 
@@ -116,6 +120,40 @@ def test_language_mapping():
     assert _language_value("auto") == "Auto" and _language_value(None) == "Auto"
     with pytest.raises(WorkerError):
         _language_value("klingon")
+
+
+def test_qwen_custom_voice_caps_prepare_and_generate(tmp_path):
+    """Fine-tuned CustomVoice: capabilities and generate_custom_voice without loading torch/qwen_tts."""
+    import numpy as np
+    import soundfile as sf
+    from shadowfetch_worker.engines.qwen3_tts import Qwen3TTSAdapter
+
+    ad = Qwen3TTSAdapter()
+    ad.tts_model_type = "custom_voice"
+    ad.speakers = ["myvoice"]
+    caps = ad.capabilities()
+    by = {c.id: c for c in caps.controls}
+    assert caps.reference.needs_transcript is False and "speaker" in by
+    assert "x_vector_only_mode" not in by and by["speaker"].default == "myvoice"
+    assert caps.prompt_controls == []
+
+    cache = tmp_path / "prompt.pt"
+    meta = ad.prepare_reference(tmp_path / "unused.wav", "ignored", "en", cache)
+    assert cache.read_bytes() == b"qwen3-custom-voice"
+    assert meta["meta"]["mode"] == "custom_voice" and meta["meta"]["speakers"] == ["myvoice"]
+
+    class FakeModel:
+        def generate_custom_voice(self, **kw):
+            assert kw["text"] == "Hello there." and kw["speaker"] == "myvoice" and kw["language"] == "English"
+            return [np.sin(np.linspace(0, 20, 4800)).astype(np.float32)], 24000
+
+    ad.model = FakeModel()
+    out = tmp_path / "out.wav"
+    res = ad.generate("Hello there.", "en", None, "", out, {"speaker": "myvoice", "temperature": 0.7})
+    assert Path(res.path).exists() and res.duration_s == pytest.approx(0.2, abs=1e-3)
+    assert sf.info(res.path).subtype == "PCM_24"
+    ad.unload()
+    assert ad.tts_model_type == "base" and ad.speakers == [] and ad.model is None
 
 
 def test_write_wav_24_and_empty(tmp_path):

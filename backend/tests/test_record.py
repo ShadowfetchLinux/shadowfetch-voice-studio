@@ -434,12 +434,11 @@ def rpc(paths: AppPaths, monkeypatch):
 
 def test_rpc_flow_start_pause_stop_inserts_rows(rpc):
     j, ctx = rpc.jobs, rpc.ctx
-    rpc.server.state["settings"].value.monitor_input = True
+    rpc.server.state["settings"].value.monitor_input = False
     rpc.server.state["settings"].value.record_subtype = "PCM_24"
     res = j.start(ctx, j.StartParams(session_name="Take one", script_id="conversational", take_number=2))
     sid = res["session_id"]
     assert res["negotiated"]["subtype"] == "PCM_24" and res["monitoring"] is False
-    assert any("monitoring" in n.lower() for n in res["notes"])
     assert rpc.server.state["record_sessions"][sid].active
 
     with pytest.raises(WorkerError) as ei:
@@ -483,6 +482,91 @@ def test_rpc_flow_start_pause_stop_inserts_rows(rpc):
     assert not (Path(res2["path"]).parent).exists() and rpc.server.state["record_sessions"] == {}
     states = [d["state"] for d in rpc.events.states()]
     assert states[:4] == ["recording", "paused", "recording", "stopped"]
+
+
+def test_session_feeds_input_monitor_including_while_paused(paths: AppPaths):
+    from shadowfetch_worker.record.monitor import MemoryMonitor
+
+    ev = Events()
+    fake = FakeBackend([("sine", 0.5, 4.0)])
+    mon = MemoryMonitor()
+    mon.start()
+    s = RecordSession(backend=fake)
+    s.attach_monitor(mon)
+    s.start(paths, None, RATE, 1, "PCM_24", on_event=ev)
+    fake.wait_blocks(8)
+    assert len(mon.blocks) >= 8
+    s.pause()
+    n = len(mon.blocks)
+    fake.wait_blocks(fake.blocks_delivered + 4)
+    assert len(mon.blocks) >= n + 4, "paused capture must still be played back"
+    res = s.stop()
+    assert mon.stopped and s.monitoring is False and res["error"] is None
+
+
+def test_monitor_write_error_does_not_stop_recording(paths: AppPaths):
+    ev = Events()
+    s, fake = sine_session(paths, ev)
+
+    class Boom:
+        name = "boom"
+
+        def write(self, _block):
+            raise RuntimeError("sink closed")
+
+        def stop(self):
+            self.stopped = True
+
+    boom = Boom()
+    s.attach_monitor(boom)
+    fake.wait_blocks(10)
+    assert s.monitoring is False and any("Input monitoring stopped" in n for n in s.notes)
+    res = s.stop()
+    assert res["error"] is None and res["duration_s"] > 0 and boom.stopped
+
+
+def test_sounddevice_monitor_drops_oldest_when_full():
+    from shadowfetch_worker.record.monitor import MONITOR_QUEUE_BLOCKS, SoundDeviceMonitor
+
+    mon = SoundDeviceMonitor(RATE, None)
+    for i in range(MONITOR_QUEUE_BLOCKS + 5):
+        mon.write(np.full(8, float(i), dtype=np.float32))
+    assert mon._q.qsize() == MONITOR_QUEUE_BLOCKS
+    assert mon._q.get_nowait()[0] == 5.0
+
+
+def test_rpc_monitor_failure_keeps_recording(rpc, monkeypatch):
+    from shadowfetch_worker.protocol import DEVICE_UNAVAILABLE
+
+    def boom(sample_rate, output_device_index):
+        raise WorkerError(DEVICE_UNAVAILABLE, "no output", recoverable=True)
+
+    monkeypatch.setattr("shadowfetch_worker.record.monitor.create_monitor", boom)
+    rpc.server.state["settings"].value.monitor_input = True
+    res = rpc.jobs.start(rpc.ctx, rpc.jobs.StartParams())
+    assert res["monitoring"] is False
+    assert any("could not be started" in n.lower() for n in res["notes"])
+    assert rpc.jobs.discard(rpc.ctx, rpc.jobs.SessionParams(session_id=res["session_id"]))["ok"] is True
+
+
+def test_rpc_monitor_attaches_when_create_succeeds(rpc, monkeypatch):
+    from shadowfetch_worker.record.monitor import MemoryMonitor
+
+    mon = MemoryMonitor()
+
+    def fake_create(sample_rate, output_device_index):
+        mon.start()
+        return mon
+
+    monkeypatch.setattr("shadowfetch_worker.record.monitor.create_monitor", fake_create)
+    rpc.server.state["settings"].value.monitor_input = True
+    res = rpc.jobs.start(rpc.ctx, rpc.jobs.StartParams(session_name="Monitored"))
+    assert res["monitoring"] is True
+    assert any("headphones" in n.lower() for n in res["notes"])
+    rpc.fakes[-1].wait_blocks(4)
+    assert mon.started and len(mon.blocks) >= 1
+    out = rpc.jobs.discard(rpc.ctx, rpc.jobs.SessionParams(session_id=res["session_id"]))
+    assert out["ok"] is True and mon.stopped
 
 
 def test_rpc_devices_and_scripts(rpc):

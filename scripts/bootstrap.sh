@@ -33,11 +33,38 @@ ok()   { printf '  \033[32m✔\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
 die()  { printf '  \033[31m✖\033[0m %s\n' "$*" >&2; exit 1; }
 
+# A packaged install must own a real venv under --runtime-dir. A leftover symlink
+# into the git checkout is how the old .deb silently stopped being standalone.
+detach_checkout_link() {
+  local dir="$1"
+  [[ -n "$RUNTIME_DIR" && -L "$dir" ]] || return 0
+  local target root
+  target=$(readlink -f "$dir" 2>/dev/null || true)
+  root=$(readlink -f "$RUNTIME_DIR")
+  if [[ -z "$target" || ( "$target" != "$root" && "$target" != "$root"/* ) ]]; then
+    warn "replacing checkout-linked environment $dir → ${target:-missing} with a standalone venv"
+    rm -f "$dir"
+  fi
+}
+
 if [[ -n "$RUNTIME_DIR" ]]; then
   MAIN_ENV="$RUNTIME_DIR/envs/main"; CB_ENV="$RUNTIME_DIR/envs/chatterbox"; mkdir -p "$RUNTIME_DIR/envs"
+  detach_checkout_link "$MAIN_ENV"
+  detach_checkout_link "$CB_ENV"
 else
   MAIN_ENV="$ROOT/backend/.venv"; CB_ENV="$ROOT/backend/envs/chatterbox"; mkdir -p "$ROOT/backend/envs"
 fi
+
+write_lock() {
+  local dest="$1" py="$2"
+  local parent; parent=$(dirname "$dest")
+  if [[ -d "$parent" && -w "$parent" ]]; then
+    "$UV" pip freeze --python "$py" > "$dest"
+    ok "lock: $dest"
+  else
+    warn "skipping lock file (not writable): $dest"
+  fi
+}
 
 # ---- uv (fast, isolated, can fetch a managed CPython) --------------------------------------------
 UV="$(command -v uv || true)"
@@ -62,8 +89,9 @@ fi
 "$UV" pip install -q --python "$MAIN_ENV/bin/python" --torch-backend="$TORCH_BACKEND" \
   --overrides "$REQ/overrides-main.txt" -r "$REQ/main.txt"
 if [[ "$DEV" == 1 ]]; then "$UV" pip install -q --python "$MAIN_ENV/bin/python" -r "$REQ/dev.txt"; fi
-"$UV" pip freeze --python "$MAIN_ENV/bin/python" > "$REQ/main.lock.txt"
-ok "main env ready (lock: backend/requirements/main.lock.txt)"
+write_lock "$REQ/main.lock.txt" "$MAIN_ENV/bin/python"
+[[ -n "$RUNTIME_DIR" ]] && write_lock "$RUNTIME_DIR/main.lock.txt" "$MAIN_ENV/bin/python"
+ok "main env ready"
 
 # ---- CUDA smoke test: a real matmul, not just is_available() -------------------------------------
 "$MAIN_ENV/bin/python" - <<'PY' || warn "CUDA smoke test failed — engines will run on CPU until this is fixed"
@@ -89,8 +117,9 @@ if [[ "$WITH_CB" == 1 ]]; then
   [[ -x "$CB_ENV/bin/python" ]] || "$UV" venv -q -p "$PY" "$CB_ENV"
   "$UV" pip install -q --python "$CB_ENV/bin/python" --torch-backend="$TORCH_BACKEND" \
     --overrides "$REQ/overrides-chatterbox.txt" -r "$REQ/chatterbox.txt"
-  "$UV" pip freeze --python "$CB_ENV/bin/python" > "$REQ/chatterbox.lock.txt"
-  ok "chatterbox env ready (lock: backend/requirements/chatterbox.lock.txt)"
+  write_lock "$REQ/chatterbox.lock.txt" "$CB_ENV/bin/python"
+  [[ -n "$RUNTIME_DIR" ]] && write_lock "$RUNTIME_DIR/chatterbox.lock.txt" "$CB_ENV/bin/python"
+  ok "chatterbox env ready"
 fi
 
 # ---- record what was built ------------------------------------------------------------------------

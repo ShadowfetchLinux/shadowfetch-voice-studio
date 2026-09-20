@@ -262,8 +262,14 @@ class EngineManager:
                 raise
             self._set(engine_id, state="loaded", model_id=model_id, revision=res.get("revision") or revision,
                       vram_bytes=res.get("vram_bytes"), device=res.get("device") or device, message="", last_used=time.time())
+            try:
+                live = host.call("engine.caps", {}, timeout=15)
+                self._caps[engine_id] = Capabilities.model_validate(live)
+            except Exception:  # noqa: BLE001 — static caps stay until the next successful load
+                log.warning("could not refresh capabilities for %s after load", engine_id)
             return {"engine_id": engine_id, "model_id": model_id, "revision": self.info[engine_id]["revision"],
-                    "load_ms": int((time.time() - t0) * 1000), "vram_bytes": res.get("vram_bytes")}
+                    "load_ms": int((time.time() - t0) * 1000), "vram_bytes": res.get("vram_bytes"),
+                    "tts_model_type": res.get("tts_model_type")}
 
     def unload(self, engine_id: str, reason: str = "") -> None:
         with self._lock:
@@ -272,6 +278,7 @@ class EngineManager:
                 host.kill()
             if engine_id in self.info:
                 self._set(engine_id, state="unloaded", model_id=None, revision=None, vram_bytes=None, device=None, message=reason)
+            self._caps.pop(engine_id, None)
 
     def shutdown_all(self) -> None:
         for eid in list(self.hosts):

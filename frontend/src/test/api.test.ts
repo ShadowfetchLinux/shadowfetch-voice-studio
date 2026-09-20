@@ -144,8 +144,32 @@ describe("api client (Tauri transport)", () => {
     invoke.mockResolvedValue(null);
     await expect(api.shell.pickSavePath("out", "wav")).resolves.toBeNull();
     expect(invoke).toHaveBeenCalledWith("pick_save_path", { defaultName: "out", ext: "wav" });
+    invoke.mockResolvedValue("/home/me/backup.zip");
+    await expect(api.shell.pickArchiveFile()).resolves.toBe("/home/me/backup.zip");
+    expect(invoke).toHaveBeenCalledWith("pick_archive_file", {});
     await api.system.ping().catch(() => undefined); // ensures the transport is selected
     expect(api.shell.fileSrc("/data/x.wav")).toBe("asset://localhost/%2Fdata%2Fx.wav");
+  });
+
+  it("mediaSrc fetches asset-protocol bytes into a blob URL and releases it after the last user", async () => {
+    const { api } = await loadApi();
+    await api.system.ping().catch(() => undefined);
+    const blob = new Blob([new Uint8Array([1, 2, 3])], { type: "audio/wav" });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: async () => blob });
+    vi.stubGlobal("fetch", fetchMock);
+    const create = vi.fn(() => "blob:http://localhost/media");
+    const revoke = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, writable: true, value: create });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, writable: true, value: revoke });
+    await expect(api.shell.mediaSrc("/data/x.wav")).resolves.toBe("blob:http://localhost/media");
+    expect(fetchMock).toHaveBeenCalledWith("asset://localhost/%2Fdata%2Fx.wav");
+    await expect(api.shell.mediaSrc("/data/x.wav")).resolves.toBe("blob:http://localhost/media");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    api.shell.releaseMediaSrc("/data/x.wav");
+    expect(revoke).not.toHaveBeenCalled();
+    api.shell.releaseMediaSrc("/data/x.wav");
+    expect(revoke).toHaveBeenCalledWith("blob:http://localhost/media");
+    vi.unstubAllGlobals();
   });
 
   it("runtimeBootstrap forwards its options as the Rust command's camelCase arguments and surfaces a rejection", async () => {

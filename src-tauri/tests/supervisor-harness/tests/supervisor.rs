@@ -89,6 +89,7 @@ fn location(python: &Path, backend: &Path) -> WorkerLocation {
         found: python.is_file() && backend.join("shadowfetch_worker/__main__.py").is_file(),
         python_found: python.is_file(),
         package_found: true,
+        standalone: true,
     }
 }
 

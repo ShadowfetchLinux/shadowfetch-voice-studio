@@ -37,9 +37,9 @@ export function toProcessingSteps(p: ProcessingOptions): Array<Record<string, un
   return steps;
 }
 
-/** Short human summary for lists ("normalize −3 dBFS · high-pass 80 Hz"). */
-export function describeProcessing(steps: unknown[] | null | undefined): string {
-  if (!steps || steps.length === 0) return "";
+/** Ordered human labels for the stored processing list (the profile's processing history). */
+export function processingSteps(steps: unknown[] | null | undefined): string[] {
+  if (!steps || steps.length === 0) return [];
   const parts: string[] = [];
   for (const s of steps) {
     if (!s || typeof s !== "object") continue;
@@ -50,5 +50,10 @@ export function describeProcessing(steps: unknown[] | null | undefined): string 
     else if (op === "normalize_peak" || op === "normalize") parts.push(`normalize ${step.dbfs ?? step.normalize_peak_dbfs ?? ""} dBFS`);
     else if (op) parts.push(op);
   }
-  return parts.join(" · ");
+  return parts;
+}
+
+/** Short human summary for lists ("normalize −3 dBFS · high-pass 80 Hz"). */
+export function describeProcessing(steps: unknown[] | null | undefined): string {
+  return processingSteps(steps).join(" · ");
 }

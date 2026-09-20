@@ -140,6 +140,9 @@ pub struct WorkerLocation {
     pub found: bool,
     pub python_found: bool,
     pub package_found: bool,
+    /// True when the chosen interpreter is not a symlink into another tree
+    /// (a leftover `runtime/envs/main → <checkout>/.venv` is not standalone).
+    pub standalone: bool,
 }
 
 /// Locate the worker python: `SFVS_WORKER_PYTHON` → (debug build) `backend/.venv/bin/python`
@@ -170,7 +173,10 @@ pub fn locate_worker(paths: &AppPaths) -> WorkerLocation {
     }
     candidates.push(("managed", managed.clone()));
 
-    let (source, python, python_found) = match candidates.iter().find(|(_, p)| p.is_file()) {
+    let (source, python, python_found) = match candidates
+        .iter()
+        .find(|(src, p)| p.is_file() && candidate_usable(src, p, &paths.runtime_root))
+    {
         Some((src, p)) => (*src, p.clone(), true),
         None => match env_override {
             Some(p) => ("env", p, false),
@@ -178,6 +184,7 @@ pub fn locate_worker(paths: &AppPaths) -> WorkerLocation {
         },
     };
     let package_found = pythonpath.join("shadowfetch_worker/__main__.py").is_file();
+    let standalone = python_found && interpreter_is_standalone(&python, &paths.runtime_root, source);
     WorkerLocation {
         python,
         pythonpath,
@@ -186,6 +193,45 @@ pub fn locate_worker(paths: &AppPaths) -> WorkerLocation {
         found: python_found && package_found,
         python_found,
         package_found,
+        standalone,
+    }
+}
+
+/// `runtime/envs/main` must be a real directory (or a symlink that still
+/// resolves inside `runtime_root`). A link into the git checkout is how the
+/// packaged app used to depend on `~/Projects/shadowfetch-voice-studio`.
+pub fn env_is_standalone(env_dir: &Path, runtime_root: &Path) -> bool {
+    let Ok(meta) = env_dir.symlink_metadata() else {
+        return false;
+    };
+    if !meta.file_type().is_symlink() {
+        return env_dir.is_dir();
+    }
+    let Ok(target) = env_dir.canonicalize() else {
+        return false;
+    };
+    let root = runtime_root
+        .canonicalize()
+        .unwrap_or_else(|_| runtime_root.to_path_buf());
+    target.starts_with(&root)
+}
+
+fn env_dir_of_python(python: &Path) -> Option<&Path> {
+    python.parent().and_then(Path::parent)
+}
+
+fn candidate_usable(source: &str, python: &Path, runtime_root: &Path) -> bool {
+    if source != "managed" {
+        return true;
+    }
+    env_dir_of_python(python).is_some_and(|dir| env_is_standalone(dir, runtime_root))
+}
+
+fn interpreter_is_standalone(python: &Path, runtime_root: &Path, source: &str) -> bool {
+    match source {
+        "env" => true,
+        "managed" => env_dir_of_python(python).is_some_and(|dir| env_is_standalone(dir, runtime_root)),
+        _ => false,
     }
 }
 
@@ -212,5 +258,29 @@ mod tests {
             p.worker_stderr_log(),
             PathBuf::from("/d/logs/shell-worker.log")
         );
+    }
+
+    #[test]
+    fn checkout_symlink_is_not_standalone() {
+        let tmp = std::env::temp_dir().join(format!(
+            "sfvs-paths-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let runtime = tmp.join("runtime");
+        let checkout = tmp.join("checkout/.venv");
+        std::fs::create_dir_all(runtime.join("envs")).unwrap();
+        std::fs::create_dir_all(&checkout).unwrap();
+        let linked = runtime.join("envs/main");
+        std::os::unix::fs::symlink(&checkout, &linked).unwrap();
+        assert!(!env_is_standalone(&linked, &runtime));
+
+        std::fs::remove_file(&linked).unwrap();
+        std::fs::create_dir_all(&linked).unwrap();
+        assert!(env_is_standalone(&linked, &runtime));
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

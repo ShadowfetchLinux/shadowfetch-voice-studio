@@ -7,7 +7,7 @@ does **not** run training and has no Train button, because full-parameter fine-t
 fit in 16 GB of VRAM (see the preflight).
 
 ## 1. Export a dataset
-Voices → select a voice → **Export training dataset** (worker method `dataset.export`). It writes:
+Voices → select a voice → **Dataset workspace** (review transcripts, run `dataset.preflight`, then `dataset.export`). It writes:
 
 ```
 <folder>/<voice name>/
@@ -42,5 +42,11 @@ git clone https://github.com/QwenLM/Qwen3-TTS && cd Qwen3-TTS
 Known caveats from the upstream repository: `sft_12hz.py` hard-codes `attn_implementation="flash_attention_2"` —
 edit it to `"sdpa"` on this GPU (no flash-attn build for sm_120); checkpoint saving peaks at ~2× model size in
 host RAM and is not atomic; reports of progressively faster speech per epoch and lower similarity than zero-shot
-cloning exist. A fine-tuned checkpoint becomes a `custom_voice` model driven by `generate_custom_voice`, which
-this app's Base-model adapter does not load — support for fine-tuned checkpoints is a documented future extension.
+cloning exist.
+
+## 4. Load the checkpoint in the app
+A fine-tuned `output_model_path` is a `custom_voice` checkpoint. In Settings → Engines & models, choose
+**Use existing folder** for the Qwen model and point it at that directory. After **Load**, the adapter reads
+`tts_model_type` from `config.json`. Generation then calls `generate_custom_voice` with the trained speaker
+name (shown as an engine control) instead of reference-audio cloning. A leftover reference on the project is
+ignored for that generation.

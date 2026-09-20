@@ -21,7 +21,7 @@ export type Page = "home" | "voices" | "create" | "library" | "settings" | "setu
 export interface RouteParams {
   projectId?: string;
   voiceId?: string;
-  /** Initial action for the target page: voices→"record"/"import", create→"new". */
+  /** Initial action: voices→"record" / "import" / "new" (fresh create-voice flow); create→"new". */
   action?: "record" | "import" | "new";
   /** Settings section to scroll to. */
   section?: string;
@@ -98,8 +98,17 @@ async function runBoot(set: Set, get: Get): Promise<void> {
     if (snapshot && !get().workerStatus) set({ workerStatus: snapshot });
     if (status && !status.running) {
       // Gave up (crash loop, no interpreter): say so and offer a restart. Otherwise wait for the status event.
-      if (status.stopped) set({ booted: true, bootError: status.last_error ?? "The local worker is not running." });
-      else set({ booted: false, bootError: null });
+      if (status.stopped) {
+        const runtime = await api.shell.runtimeStatus().catch(() => null);
+        const needsRuntime =
+          runtime?.found === false || /runtime not found|run the runtime bootstrap/i.test(status.last_error ?? "");
+        if (needsRuntime) {
+          // First-run packaged install: the shell can bootstrap without a worker.
+          set({ booted: true, bootError: null, page: "setup" });
+        } else {
+          set({ booted: true, bootError: status.last_error ?? "The local worker is not running." });
+        }
+      } else set({ booted: false, bootError: null });
       return;
     }
     const firstBoot = get().settings == null;

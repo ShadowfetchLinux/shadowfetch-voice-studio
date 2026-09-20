@@ -1,16 +1,18 @@
 [Desktop Entry]
 Type=Application
+Version=1.0
 Name={{name}}
 GenericName=Voice Studio
 {{#if comment}}
 Comment={{comment}}
 {{/if}}
 Exec={{exec}}
-Icon={{icon}}
+TryExec={{exec}}
+Icon=com.shadowfetch.voicestudio
 Terminal=false
 StartupNotify=true
-StartupWMClass={{exec}}
-Categories=AudioVideo;Audio;
+StartupWMClass=com.shadowfetch.voicestudio
+Categories=AudioVideo;Audio;AudioVideoEditing;
 Keywords=voice;clone;tts;text to speech;narration;audio;recording;speech;studio;
 {{#if mime_type}}
 MimeType={{mime_type}}

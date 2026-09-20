@@ -1,7 +1,7 @@
 {
   "name": "shadowfetch-voice-studio-frontend",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "React UI for Shadowfetch Voice Studio (Tauri 2 desktop shell).",
   "scripts": {

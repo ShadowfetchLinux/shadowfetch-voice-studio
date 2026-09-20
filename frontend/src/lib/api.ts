@@ -100,6 +100,10 @@ export function __resetForTests(): void {
   eventHandlers.clear();
   statusHandlers.clear();
   runtimeLogHandlers.clear();
+  for (const c of mediaUrlCache.values()) {
+    if (typeof URL.revokeObjectURL === "function") URL.revokeObjectURL(c.url);
+  }
+  mediaUrlCache.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -224,6 +228,7 @@ async function shell<C extends ShellCommandName>(cmd: C, args?: ShellCommands[C]
 // ---------------------------------------------------------------------------
 
 type Handler<T> = (data: T) => void;
+const mediaUrlCache = new Map<string, { url: string; refs: number; bytes: number }>();
 const eventHandlers = new Map<string, Set<Handler<unknown>>>();
 const statusHandlers = new Set<Handler<WorkerStatus>>();
 const runtimeLogHandlers = new Set<Handler<RuntimeLogLine>>();
@@ -373,6 +378,7 @@ export const api = {
   transcribe: {
     models: (o?: Opts) => request("transcribe.models", none, o),
     run: (p: ParamsOf<"transcribe.run">, o?: Opts) => request("transcribe.run", p, o),
+    unload: (o?: Opts) => request("transcribe.unload", none, o),
   },
 
   engine: {
@@ -380,6 +386,7 @@ export const api = {
     capabilities: (engine_id: string, o?: Opts) => request("engine.capabilities", { engine_id }, o),
     load: (p: ParamsOf<"engine.load">, o?: Opts) => request("engine.load", p, o),
     unload: (engine_id: string, o?: Opts) => request("engine.unload", { engine_id }, o),
+    health: (engine_id: string, o?: Opts) => request("engine.health", { engine_id }, o),
     prepareReference: (p: ParamsOf<"engine.prepare_reference">, o?: Opts) => request("engine.prepare_reference", p, o),
     generate: (p: ParamsOf<"engine.generate">, o?: Opts) => request("engine.generate", p, o),
   },
@@ -399,6 +406,12 @@ export const api = {
     delete: (p: ParamsOf<"voices.delete">, o?: Opts) => request("voices.delete", p, o),
     addReference: (p: ParamsOf<"voices.add_reference">, o?: Opts) => request("voices.add_reference", p, o),
     selectReference: (p: ParamsOf<"voices.select_reference">, o?: Opts) => request("voices.select_reference", p, o),
+    updateReference: (p: ParamsOf<"voices.update_reference">, o?: Opts) => request("voices.update_reference", p, o),
+  },
+
+  dataset: {
+    export: (p: ParamsOf<"dataset.export">, o?: Opts) => request("dataset.export", p, o),
+    preflight: (p: ParamsOf<"dataset.preflight"> = {}, o?: Opts) => request("dataset.preflight", p, o),
   },
 
   projects: {
@@ -431,6 +444,7 @@ export const api = {
 
   models: {
     list: (o?: Opts) => request("models.list", none, o),
+    state: (model_id: string, o?: Opts) => request("models.state", { model_id }, o),
     download: (model_id: string, o?: Opts) => request("models.download", { model_id }, o),
     cancelDownload: (model_id: string, o?: Opts) => request("models.cancel_download", { model_id }, o),
     verify: (model_id: string, o?: Opts) => request("models.verify", { model_id }, o),
@@ -452,6 +466,7 @@ export const api = {
     pickAudioFiles: (): Promise<string[]> => shell("pick_audio_files").then((r) => r ?? []),
     pickTextFile: (): Promise<string | null> => shell("pick_text_file"),
     pickSavePath: (defaultName: string, ext: string): Promise<string | null> => shell("pick_save_path", { defaultName, ext }),
+    pickArchiveFile: (): Promise<string | null> => shell("pick_archive_file"),
     pickDirectory: (): Promise<string | null> => shell("pick_directory"),
     readTextFile: (path: string): Promise<string> => shell("read_text_file", { path }),
     openPath: (path: string): Promise<void> => shell("open_path", { path }),
@@ -460,6 +475,35 @@ export const api = {
     fileSrc: (path: string): string => {
       if (activeTransport) return activeTransport.convertFileSrc(path);
       return isTauri() ? tauriTransport.convertFileSrc(path) : path;
+    },
+    /**
+     * Playable URL for a local audio file. WebKitGTK's media player refuses custom URI schemes
+     * (only blob/data/file/http(s)), so inside Tauri the bytes are fetched through the scoped
+     * asset protocol and exposed as a `blob:` object URL. Cached per path+mtime hint; call
+     * `releaseMediaSrc` when a player is done with it.
+     */
+    mediaSrc: async (path: string): Promise<string> => {
+      if (!isTauri()) return path;
+      const cached = mediaUrlCache.get(path);
+      if (cached) {
+        cached.refs += 1;
+        return cached.url;
+      }
+      const res = await fetch(tauriTransport.convertFileSrc(path));
+      if (!res.ok) throw new WorkerError({ code: "NOT_FOUND", message: `Could not read ${path} (${res.status})`, recoverable: true });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      mediaUrlCache.set(path, { url, refs: 1, bytes: blob.size });
+      return url;
+    },
+    releaseMediaSrc: (path: string): void => {
+      const c = mediaUrlCache.get(path);
+      if (!c) return;
+      c.refs -= 1;
+      if (c.refs <= 0) {
+        URL.revokeObjectURL(c.url);
+        mediaUrlCache.delete(path);
+      }
     },
   },
 } as const;

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FolderOpen } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { EmptyState } from "@/components/ui/Feedback";
@@ -69,23 +70,32 @@ export default function CreatePage() {
       )}
       {!projectId && !projectLoading && projects.length === 0 && (
         <div className="panel">
-          <EmptyState icon={<FolderOpen />} title="No project yet" text="Create a project to start writing. Each project keeps its script history, planned segments, takes and master." />
+          <EmptyState
+            icon={<FolderOpen />}
+            title="No project yet"
+            text="Start a project, write a script, then generate. Each project keeps the script and the audio you make."
+            action={
+              <Button variant="primary" onClick={() => setOpenNew(true)}>
+                New project
+              </Button>
+            }
+          />
         </div>
       )}
       <ActionsRow selectedIndexes={selectedIndexes} onRequestCancel={requestCancel} />
       <ProgressPanel />
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2 flex flex-col gap-4 min-w-0">
-          <Card title="Script" description="The text to be spoken. Autosaved 1.5 s after you stop typing.">
+          <Card title="Script" description="The text to speak. Saved automatically as you type.">
             <ScriptEditor />
           </Card>
           <SegmentList selectedIndexes={selectedIndexes} />
         </div>
         <div className="flex flex-col gap-4 min-w-0">
-          <Card title="Voice & reference">
+          <Card title="Voice">
             <VoicePanel />
           </Card>
-          <Card title="Engine & settings">
+          <Card title="Engine">
             <EnginePanel engines={engines} caps={caps} />
           </Card>
           {projectId && <CompareEngines engines={engines} />}

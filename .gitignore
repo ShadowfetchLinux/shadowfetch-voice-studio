@@ -18,10 +18,12 @@ frontend/.vite/
 src-tauri/target/
 src-tauri/gen/schemas/
 src-tauri/binaries/
+*.AppImage
 
-# Model weights, runtimes, caches — never committed
-models/
-runtime/
+# Downloaded weights / local runtimes — never the Python package at
+# backend/shadowfetch_worker/models/ (that directory is source, not weights).
+/models/
+/runtime/
 *.safetensors
 *.bin
 *.pt

@@ -115,7 +115,7 @@ describe("<Recorder /> with a mocked worker", () => {
     render(<Host />);
     await waitFor(() => expect(screen.getByText("Everyday conversation")).toBeInTheDocument());
     expect(screen.getByText(/Okay, so here's what happened/)).toBeInTheDocument();
-    expect(screen.getByText(/monitoring \(hearing yourself\) is off/i)).toBeInTheDocument();
+    expect(screen.getByText(/hear yourself while recording/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Record" }));
     await waitFor(() => expect(screen.getByTestId("recorder-state")).toHaveTextContent("Recording"));
@@ -123,7 +123,7 @@ describe("<Recorder /> with a mocked worker", () => {
     expect(mod.api.record.start).toHaveBeenCalledWith(expect.objectContaining({ device_index: null, channels: 1, script_id: "conversational", take_number: 1 }));
     expect(screen.getByText("24-bit file — device precision not reported")).toBeInTheDocument();
     expect(screen.getByText("USB Mic")).toBeInTheDocument();
-    expect(screen.getByText("off (not implemented)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Negotiated recording settings")).toHaveTextContent(/Monitoring\s*off/);
 
     act(() => bus.emit("record.level", level({ elapsed_s: 12.34, peak_dbfs: -6.5, clipped: true })));
     expect(screen.getByTestId("recorder-elapsed")).toHaveTextContent("0:12.3");
@@ -147,6 +147,18 @@ describe("<Recorder /> with a mocked worker", () => {
     await user.click(screen.getByRole("button", { name: "Use this take" }));
     expect(onUseTake).toHaveBeenCalledWith(expect.objectContaining({ asset_id: "rec_1", working_path: "/data/recordings/rec_1/working.wav", duration_s: 42.5 }));
     expect(screen.getByRole("button", { name: "Selected" })).toBeInTheDocument();
+  });
+
+  it("shows Monitoring on when the worker started input playback", async () => {
+    const { mod } = await h;
+    const user = userEvent.setup();
+    mod.api.record.start.mockResolvedValue({ ...startResult, monitoring: true, notes: ["Input monitoring is on. Use headphones to avoid a feedback loop."] });
+    render(<Recorder onUseTake={() => {}} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Record" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Record" }));
+    await waitFor(() => expect(screen.getByTestId("recorder-state")).toHaveTextContent("Recording"));
+    expect(screen.getByLabelText("Negotiated recording settings")).toHaveTextContent(/Monitoring\s*on/);
+    expect(screen.getByText(/Input monitoring is on/i)).toBeInTheDocument();
   });
 
   it("shows DEVICE_UNAVAILABLE from record.start with a working Retry", async () => {

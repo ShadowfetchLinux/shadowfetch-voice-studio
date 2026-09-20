@@ -399,6 +399,7 @@ export function createMockTransport(): Transport {
             bootstrap_script: "/mock/scripts/bootstrap.sh",
             bootstrap_script_found: true,
             bootstrap_running: false,
+            standalone: true,
           } satisfies RuntimeStatus as T;
         case "runtime_bootstrap": {
           const withCb = args.withChatterbox === true;
@@ -414,6 +415,7 @@ export function createMockTransport(): Transport {
           return [] as T;
         case "pick_text_file":
         case "pick_save_path":
+        case "pick_archive_file":
         case "pick_directory":
           console.info(`[PREVIEW MOCK] ${cmd}: native dialogs are unavailable in the browser`);
           return null as T;

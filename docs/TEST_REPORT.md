@@ -1,4 +1,4 @@
-# Test report — v0.1.0
+# Test report — v0.1.1
 
 Machine: Pop!_OS 24.04 LTS (COSMIC, Wayland) · AMD Ryzen 7 5700G · 62 GiB RAM · NVIDIA GeForce RTX 5060 Ti 16 GB
 (compute capability 12.0, driver 580.173.02) · 1.2 TB free NVMe · FFmpeg 6.1.1 · Python 3.12.3 · uv 0.11.9.
@@ -14,16 +14,17 @@ Legend: **PASS** = ran on this machine · **UNIT** = automated with mocks/synthe
 
 | Suite | Command | Result |
 |-------|---------|--------|
-| Backend unit (mocked engines, synthetic audio) | `backend/.venv/bin/python -m pytest backend/tests -m "not realmodel"` | **157 passed, 2 skipped** |
-| Backend real-model integration | `SFVS_REAL_MODELS=1 … pytest backend/tests/test_real_*.py` | **PASS** (Qwen 4, Chatterbox 3, whisper, E2E) |
-| Frontend (vitest) | `cd frontend && npm test -- --run` | **80 passed (14 files)** |
+| Backend unit (mocked engines, synthetic audio) | `backend/.venv/bin/python -m pytest backend/tests -m "not realmodel"` | **169 passed, 2 skipped** |
+| Backend real-model integration | `SFVS_REAL_MODELS=1 … pytest backend/tests/test_real_*.py` | **PASS** (re-run 2026-09-18: 12 passed; one Qwen load hit GPU OOM while another process held ~5 GB VRAM, then passed on retry) |
+| Frontend (vitest) | `cd frontend && npm test -- --run` | **104 passed (17 files)** |
 | Frontend typecheck + production build | `cd frontend && npm run build` | **PASS** |
-| Rust shell | `cd src-tauri && cargo check` | **type-checks with 0 warnings against stub pkg-config files**; a linked build needs the WebKitGTK/GTK dev packages (see §5) |
+| Rust shell | `cd src-tauri && cargo test --lib --tests --bins` | **2 passed** (linked against installed WebKitGTK). Supervisor harness: `cargo test --manifest-path src-tauri/tests/supervisor-harness/Cargo.toml` **13 passed**. `cargo test` doctests fail here because `rustdoc` cannot load `libLLVM.so` from this Rust toolchain — not an app defect. |
+| Packaged `.deb` + AppImage | `scripts/build.sh` / `scripts/install-linux.sh` | **PASS** (re-run 2026-09-20) — `Shadowfetch Voice Studio_0.1.1_amd64.deb` installed over 0.1.0. One desktop file (`com.shadowfetch.voicestudio.desktop`); Hidden user stubs removed. Managed runtime is a real venv under `~/.local/share/com.shadowfetch.voicestudio/runtime` (not a checkout symlink). AppImage still fails here in `linuxdeploy` (COSMIC/FUSE); the `.deb` is the installed standalone app. |
 
 ## 2. Environment diagnostics (`scripts/doctor.sh`, `system.diagnostics`)
 - GPU, driver, VRAM, utilisation, CPU, RAM, free disk, FFmpeg version, audio devices: detected live — nothing hardcoded. **PASS**
 - Real CUDA smoke test: bf16 2048² matmul on the RTX 5060 Ti, sm_120 present in `torch.cuda.get_arch_list()`. **PASS**
-- PortAudio (`libportaudio2`) absent on this machine → recording falls back to the FFmpeg/PulseAudio backend and diagnostics say so. **PASS (fallback path)**
+- PortAudio (`libportaudio2`) is installed (`/lib/x86_64-linux-gnu/libportaudio.so.2`); PulseAudio-on-PipeWire 1.6.8 is the session. **PASS**
 
 ## 3. Core path (real models, through the real worker process over JSON lines) — `backend/tests/test_real_e2e.py`
 Reference speech: espeak-ng (intelligible synthetic speech with a known transcript). This proves the pipeline, **not**
@@ -61,14 +62,18 @@ voice fidelity — no human recording exists on this machine (see §6 for the ma
 | Stale caches | unit: editing a transcript recomputes the fingerprint, drops derived files and prompt-cache rows (`test_store.py`) | **UNIT** |
 | Simulated GPU-memory failure | unit: OOM classified as `GPU_OOM`, engine kept loaded, no retry loop (`test_engines_caps.py`) | **UNIT** |
 | Microphone disconnection | unit: backend process death → `DEVICE_UNAVAILABLE` (`test_record.py`); no microphone is connected to this machine | **UNIT / UNVERIFIED (hardware)** |
+| Input monitoring | unit: session feeds `MemoryMonitor` while paused; `record.start` attaches when `create_monitor` succeeds and keeps recording when it fails (`test_record.py`) | **UNIT** |
+| Fine-tuned Qwen `custom_voice` | unit: capabilities/speaker control, marker prompt cache, `generate_custom_voice` without torch; `use_existing_dir` warns (`test_engines_caps.py`, `test_models.py`) | **UNIT** |
+| Reference processing on derived wav | unit: stored trim/highpass/normalize applied at working rate; `prepare_reference` is not peak-normalized again (`test_store.py`) | **UNIT** |
 | Multi-paragraph order + persistence across restart | real (E2E) | **PASS** |
 | Exports: duration, sample rate, nonempty, finite samples | real (E2E) + unit | **PASS** |
 
 ## 5. Not verified on this machine (and how to verify)
-- **Packaged application (.deb/AppImage), Tauri window, screenshots, keyboard/layout checks at 1280×800 and
-  1920×1080.** Blocked by missing system packages; run
-  `sudo apt install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf libportaudio2`
-  then `scripts/build.sh` and install `src-tauri/target/release/bundle/deb/*.deb`.
+- **Tauri window, screenshots, keyboard/layout checks at 1280×800 and 1920×1080.** Layout walked in the
+  desktop UI (Home / Voices / Create / Library / Settings / Setup) at 1280×800 and Home at 1920×1080.
+  Screenshots: `docs/screenshots/`. The existing packaged window on this machine could not be captured
+  from the Wayland session (`xdotool` saw no X11 window); browser preview of the same React shell was used.
+  Install the `.deb` and walk Voices → Create → Library at both sizes to confirm native window chrome.
 - **Microphone recording with a real microphone** (no capture device is connected; only monitor sources exist).
   Manual: Voices → Record with microphone → pick the device → Record 30 s → Stop; expect a 24-bit WAV, live meter,
   and the negotiated settings panel. Then unplug the device mid-recording; expect an error state with the partial file kept.

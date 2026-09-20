@@ -81,7 +81,7 @@ describe("<ReviewStep /> shows the engine limits live", () => {
     const onSelectionChange = vi.fn();
     const { rerender } = render(<ReviewStep source={source} caps={caps} capsError={null} selection={null} onSelectionChange={onSelectionChange} processing={defaultProcessing} onProcessingChange={() => {}} />);
     await waitFor(() => expect(onSelectionChange).toHaveBeenCalledWith({ start: 0, end: 15 }));
-    expect(screen.getByText(/needs 3–30 s of reference audio/)).toBeInTheDocument();
+    expect(screen.getByText(/Use about 8–15 s of clean speech/)).toBeInTheDocument();
 
     rerender(<ReviewStep source={source} caps={caps} capsError={null} selection={{ start: 0, end: 15 }} onSelectionChange={onSelectionChange} processing={defaultProcessing} onProcessingChange={() => {}} />);
     expect(screen.getByTestId("trim-verdict")).toHaveTextContent("within the recommended 8–15 s");
@@ -102,5 +102,28 @@ describe("<ReviewStep /> shows the engine limits live", () => {
     render(<ReviewStep source={source} caps={null} capsError="Environment for chatterbox-turbo is not installed" selection={{ start: 0, end: 12 }} onSelectionChange={() => {}} processing={defaultProcessing} onProcessingChange={() => {}} />);
     expect(screen.getByText(/Engine limits unavailable/)).toBeInTheDocument();
     expect(screen.getByTestId("trim-verdict")).toHaveTextContent("No engine limits available");
+  });
+
+  it("undoes the last trim handle change", async () => {
+    const user = (await import("@testing-library/user-event")).default.setup();
+    const onSelectionChange = vi.fn();
+    render(<ReviewStep source={source} caps={caps} capsError={null} selection={{ start: 0, end: 15 }} onSelectionChange={onSelectionChange} processing={defaultProcessing} onProcessingChange={() => {}} />);
+    await waitFor(() => expect(screen.getByRole("slider", { name: "Selection end" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Undo trim" })).toBeDisabled();
+    screen.getByRole("slider", { name: "Selection end" }).focus();
+    await user.keyboard("{ArrowRight}");
+    expect(onSelectionChange).toHaveBeenCalledWith({ start: 0, end: 15.05 });
+    expect(screen.getByRole("button", { name: "Undo trim" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Undo trim" }));
+    expect(onSelectionChange).toHaveBeenLastCalledWith({ start: 0, end: 15 });
+  });
+
+  it("states that optional processing is applied to a derived copy", async () => {
+    const user = (await import("@testing-library/user-event")).default.setup();
+    render(<ReviewStep source={source} caps={caps} capsError={null} selection={{ start: 0, end: 12 }} onSelectionChange={() => {}} processing={defaultProcessing} onProcessingChange={() => {}} />);
+    expect(screen.getByText(/Applied to a copy; the recording is never modified/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Processing \(optional\)/ }));
+    expect(screen.getByText(/applied to a derived copy/i)).toBeInTheDocument();
+    expect(screen.getByText(/original recording is never modified/i)).toBeInTheDocument();
   });
 });

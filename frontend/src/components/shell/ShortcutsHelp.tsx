@@ -7,6 +7,7 @@ import { NAV_ITEMS, SETTINGS_ITEM } from "./Sidebar";
 const SHORTCUTS: Array<{ keys: string[]; label: string }> = [
   ...NAV_ITEMS.map((n) => ({ keys: [n.key], label: `Go to ${n.label}` })),
   { keys: [SETTINGS_ITEM.key], label: "Go to Settings" },
+  { keys: ["n"], label: "New voice" },
   { keys: ["?"], label: "Show this help" },
   { keys: ["Esc"], label: "Close dialogs" },
   { keys: ["Space"], label: "Play / pause (when a player is focused)" },
@@ -33,6 +34,11 @@ export function useGlobalShortcuts() {
       if (e.key === "?") {
         e.preventDefault();
         setShortcutsOpen(true);
+        return;
+      }
+      if (e.key === "n" || e.key === "N") {
+        e.preventDefault();
+        navigate("voices", { action: "new" });
         return;
       }
       const page = pages[e.key];

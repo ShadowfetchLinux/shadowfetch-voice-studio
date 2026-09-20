@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AudioLines, ChevronRight, Cpu, FolderOpen, HardDrive, Import, Mic, Package, Sparkles, X } from "lucide-react";
+import { AudioLines, ChevronRight, Cpu, FolderOpen, HardDrive, Library, Mic, Package, Sparkles, X } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Project } from "@/lib/protocol";
 import { cx, formatBytes, formatRelative } from "@/lib/format";
@@ -39,11 +39,12 @@ function FirstRunBanner() {
     <div className="flex items-center gap-4 rounded-[var(--radius-panel)] border border-accent/30 bg-accent-soft px-5 py-4" role="region" aria-label="First run">
       <Sparkles className="size-5 text-accent shrink-0" />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold">Setup is not finished</p>
-        <p className="text-[13px] text-muted">Check FFmpeg, the GPU, audio devices and install the models before your first voice.</p>
+        <p className="text-sm font-semibold">A few setup checks are still open</p>
+        <p className="text-[13px] text-muted">You can make a voice now. Come back to setup if recording or generation asks for a missing piece.</p>
       </div>
-      <Button variant="primary" onClick={() => navigate("setup")}>
-        Continue setup
+      <Button onClick={() => navigate("setup")}>Setup</Button>
+      <Button variant="primary" onClick={() => navigate("voices", { action: "new" })}>
+        New voice
       </Button>
       <button type="button" aria-label="Hide for now" onClick={() => setHidden(true)} className="size-9 inline-flex items-center justify-center rounded-md text-muted hover:bg-black/5">
         <X className="size-4" />
@@ -76,7 +77,7 @@ function RecentProjects() {
       title="Recent projects"
       actions={
         <Button size="sm" variant="ghost" onClick={() => navigate("library")} iconRight={<ChevronRight />}>
-          All projects
+          Library
         </Button>
       }
       flush
@@ -90,7 +91,7 @@ function RecentProjects() {
           compact
           icon={<FolderOpen />}
           title="No projects yet"
-          text="Create speech from a script and it will show up here."
+          text="After you have a voice, write a script on Create and it will show up here."
           action={
             <Button variant="primary" onClick={() => navigate("create", { action: "new" })}>
               Create speech
@@ -112,7 +113,7 @@ function RecentProjects() {
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-medium truncate">{p.name}</span>
                   <span className="block text-[12.5px] text-muted truncate">
-                    {[p.voice_name, p.engine_id, p.master_path ? "master ready" : null].filter(Boolean).join(" · ") || "No voice selected"}
+                    {[p.voice_name, p.master_path ? "audio ready" : null].filter(Boolean).join(" · ") || "No voice selected"}
                   </span>
                 </span>
                 <span className="text-[12.5px] text-muted shrink-0">{formatRelative(p.updated_at)}</span>
@@ -144,17 +145,16 @@ function SystemStatus() {
   const models = useAppStore((s) => s.models);
   const settings = useAppStore((s) => s.settings);
 
-  // Required = the default engine's TTS model + the default transcription model.
   const required = models.filter((m) => (m.kind === "tts" && m.engine_id === settings?.default_engine) || m.id === settings?.asr_model);
   const installed = models.filter((m) => m.state === "installed");
   const missingRequired = required.filter((m) => m.state !== "installed");
 
   return (
     <Card
-      title="System"
+      title="This computer"
       actions={
         <Button size="sm" variant="ghost" onClick={() => navigate("setup")}>
-          Set up
+          Setup
         </Button>
       }
     >
@@ -165,16 +165,16 @@ function SystemStatus() {
         <Row icon={<AudioLines />} label="Engine">
           {loaded ? (
             <StatusPill tone={loaded.state.state === "loading" ? "warn" : "success"} size="sm" dot pulse={loaded.state.state === "loading"}>
-              {loaded.state.state === "loading" ? "loading" : "loaded"} · {loaded.engine.name}
+              {loaded.state.state === "loading" ? "loading" : "ready"} · {loaded.engine.name}
             </StatusPill>
           ) : (
             <StatusPill tone="neutral" size="sm">
-              idle (nothing loaded)
+              idle
             </StatusPill>
           )}
         </Row>
         <Row icon={<HardDrive />} label="Disk">
-          {diagnostics ? `${formatBytes(diagnostics.disk.free_bytes, 0)} free of ${formatBytes(diagnostics.disk.total_bytes, 0)}` : <span className="text-muted">checking…</span>}
+          {diagnostics ? `${formatBytes(diagnostics.disk.free_bytes, 0)} free` : <span className="text-muted">checking…</span>}
         </Row>
         <Row icon={<Package />} label="Models">
           {models.length === 0 ? (
@@ -186,12 +186,12 @@ function SystemStatus() {
               </span>
               {missingRequired.length > 0 && (
                 <StatusPill tone="warn" size="sm">
-                  {missingRequired.length} required missing
+                  {missingRequired.length} still needed
                 </StatusPill>
               )}
               {missingRequired.length > 0 && (
                 <button type="button" className="text-[13px] font-medium text-accent hover:underline" onClick={() => navigate("setup")}>
-                  Set up
+                  Setup
                 </button>
               )}
             </span>
@@ -217,10 +217,16 @@ export default function HomePage() {
   return (
     <div className="flex flex-col gap-6">
       {settings && !settings.onboarding_done && <FirstRunBanner />}
-      <section aria-label="Quick actions" className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <BigAction icon={<Mic />} title="Record a voice" text="Read a short guided script with your microphone." onClick={() => navigate("voices", { action: "record" })} />
-        <BigAction icon={<Import />} title="Import audio" text="Use an existing clean recording as the reference." onClick={() => navigate("voices", { action: "import" })} />
-        <BigAction icon={<Sparkles />} title="Create speech" text="Turn a script into audio with a cloned voice." onClick={() => navigate("create", { action: "new" })} primary />
+      <section aria-label="Get started">
+        <div className="mb-4">
+          <h2 className="text-[17px]">Three steps</h2>
+          <p className="text-[13px] text-muted mt-0.5">Make a voice, write a script, then find the audio in the Library.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <BigAction icon={<Mic />} title="New voice" text="Record or import a short sample, trim it, check the words, and save." onClick={() => navigate("voices", { action: "new" })} primary />
+          <BigAction icon={<Sparkles />} title="Create speech" text="Write a script and generate audio with a saved voice." onClick={() => navigate("create", { action: "new" })} />
+          <BigAction icon={<Library />} title="Library" text="Play, export and back up the speech you have made." onClick={() => navigate("library")} />
+        </div>
       </section>
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-6 items-start">
         <RecentProjects />

@@ -30,7 +30,7 @@ Requires Node ≥ 20.19 (22.x works). No web fonts or CDN assets; the font stack
 | `src/components/model-manager/ModelRow.tsx` | Download (with license/repo/size confirmation) / Cancel / Verify / Use existing folder / Remove for one model. |
 | `src/store/appStore.ts` | zustand store: page routing, diagnostics, settings, engines, models, worker status, GPU status, live engine/model events, loaders with error toasts (`handleError`). |
 | `src/store/modelOps.ts` | Long-running model/engine operations that must survive page changes (downloads with byte progress, load/unload). |
-| `src/pages/` | `HomePage`, `SettingsPage`, `SetupPage`; `VoicesPage` / `CreatePage` / `LibraryPage` are placeholders owned by other agents (default export, no props). |
+| `src/pages/` | `HomePage`, `VoicesPage`, `CreatePage`, `LibraryPage`, `SettingsPage`, `SetupPage`. |
 
 ## Design tokens
 

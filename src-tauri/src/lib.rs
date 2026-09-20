@@ -82,6 +82,15 @@ pub fn run() {
             let supervisor = Arc::new(Supervisor::new(sink, tokio_handle, paths.clone()));
             supervisor.start();
             app.manage(ShellState::new(paths, supervisor));
+            // Wayland/COSMIC looks up the window icon by GTK app id; also stamp the
+            // bundled waveform onto the window so the title bar is never empty.
+            if let Some(window) = app.get_webview_window("main") {
+                if let Some(icon) = app.default_window_icon().cloned() {
+                    if let Err(e) = window.set_icon(icon) {
+                        log::warn!("could not set the window icon: {e}");
+                    }
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -95,6 +104,7 @@ pub fn run() {
             commands::pick_audio_files,
             commands::pick_text_file,
             commands::pick_save_path,
+            commands::pick_archive_file,
             commands::pick_directory,
             commands::read_text_file,
             commands::open_path,

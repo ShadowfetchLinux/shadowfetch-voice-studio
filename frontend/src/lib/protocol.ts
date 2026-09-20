@@ -442,6 +442,8 @@ export interface RecordStartParams {
   channels?: number;
   subtype?: string;
   session_name?: string;
+  script_id?: string | null;
+  take_number?: number;
 }
 
 export interface RecordNegotiated {
@@ -459,6 +461,9 @@ export interface RecordStartResult {
   path: string;
   negotiated: RecordNegotiated;
   notes: string[];
+  monitoring?: boolean;
+  script_id?: string | null;
+  take_number?: number | null;
 }
 
 export interface RecordSessionParams {
@@ -854,6 +859,10 @@ export interface VoiceCreateParams {
   transcript: string;
   engine_id?: string;
   processing?: unknown[];
+  transcript_source?: string;
+  transcript_confirmed?: boolean;
+  asr_model?: string | null;
+  label?: string | null;
 }
 
 export interface VoicesListResult {
@@ -887,6 +896,29 @@ export interface DatasetExportResult {
   total_seconds: number;
 }
 
+export interface DatasetPreflightParams {
+  params?: number;
+  batch?: number;
+  seq?: number;
+}
+
+export interface DatasetPreflightResult {
+  gpu: string;
+  vram_total_gb: number;
+  vram_free_gb: number;
+  estimate_gb: Record<string, number>;
+  host_ram_peak_gb: number;
+  host_ram_free_gb: number | null;
+  fits: boolean;
+  verdict: string;
+}
+
+export interface EngineHealthResult {
+  alive: boolean;
+  error?: string;
+  [key: string]: unknown;
+}
+
 export interface AddReferenceParams {
   voice_id: string;
   asset_id: string;
@@ -894,11 +926,30 @@ export interface AddReferenceParams {
   transcript: string;
   /** Validates the trim against that engine's reference limits (as `voices.create` does). */
   engine_id?: string;
+  processing?: unknown[];
+  label?: string | null;
+  select?: boolean;
+  transcript_source?: string;
+  transcript_confirmed?: boolean;
+  asr_model?: string | null;
 }
 
 export interface SelectReferenceParams {
   voice_id: string;
   reference_id: string;
+}
+
+export interface UpdateReferenceParams {
+  reference_id: string;
+  patch: Partial<{
+    transcript: string;
+    label: string | null;
+    trim: Trim;
+    processing: unknown[];
+    transcript_confirmed: boolean;
+    transcript_source: string;
+    asr_model: string | null;
+  }>;
 }
 
 export interface Take {
@@ -1230,11 +1281,13 @@ export interface Methods {
 
   "transcribe.models": { params: Record<string, never>; result: { models: TranscribeModel[] } };
   "transcribe.run": { params: TranscribeParams; result: TranscribeResult };
+  "transcribe.unload": { params: Record<string, never>; result: { ok: boolean } };
 
   "engine.list": { params: Record<string, never>; result: EngineListResult };
   "engine.capabilities": { params: EngineIdParams; result: Capabilities };
   "engine.load": { params: EngineLoadParams; result: EngineLoadResult };
   "engine.unload": { params: EngineIdParams; result: { ok: boolean } };
+  "engine.health": { params: EngineIdParams; result: EngineHealthResult };
   "engine.prepare_reference": { params: EnginePrepareReferenceParams; result: EnginePrepareReferenceResult };
   "engine.generate": { params: EngineGenerateParams; result: EngineGenerateResult };
 
@@ -1249,7 +1302,9 @@ export interface Methods {
   "voices.update": { params: VoiceUpdateParams; result: Voice };
   "voices.delete": { params: VoiceDeleteParams; result: { ok: boolean } };
   "voices.add_reference": { params: AddReferenceParams; result: Reference };
+  "voices.update_reference": { params: UpdateReferenceParams; result: Reference };
   "dataset.export": { params: DatasetExportParams; result: DatasetExportResult };
+  "dataset.preflight": { params: DatasetPreflightParams; result: DatasetPreflightResult };
   "voices.select_reference": { params: SelectReferenceParams; result: Voice | { ok: boolean } };
 
   "projects.create": { params: ProjectCreateParams; result: Project };
@@ -1273,6 +1328,7 @@ export interface Methods {
   "export.loudness_targets": { params: Record<string, never>; result: LoudnessTargetsResult };
 
   "models.list": { params: Record<string, never>; result: ModelsListResult };
+  "models.state": { params: ModelIdParams; result: ModelInfo };
   "models.download": { params: ModelIdParams; result: ModelDownloadResult };
   "models.cancel_download": { params: ModelIdParams; result: { ok: boolean } };
   "models.verify": { params: ModelIdParams; result: ModelVerifyResult };
@@ -1310,6 +1366,7 @@ export interface RuntimeStatus {
   bootstrap_script: string;
   bootstrap_script_found: boolean;
   bootstrap_running: boolean;
+  standalone: boolean;
 }
 
 /** Arguments of `runtime_bootstrap` (Tauri maps camelCase onto the snake_case Rust parameters). */
@@ -1344,6 +1401,7 @@ export interface ShellCommands {
   pick_audio_files: { args: Record<string, never>; result: string[] | null };
   pick_text_file: { args: Record<string, never>; result: string | null };
   pick_save_path: { args: PickSavePathParams; result: string | null };
+  pick_archive_file: { args: Record<string, never>; result: string | null };
   pick_directory: { args: Record<string, never>; result: string | null };
   read_text_file: { args: { path: string }; result: string };
   open_path: { args: { path: string }; result: void };

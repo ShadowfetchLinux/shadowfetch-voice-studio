@@ -68,7 +68,7 @@ export function CompareEngines({ engines }: { engines: EngineInfo[] }) {
   const segOptions = segments.map((s) => ({ value: String(s.index), label: `#${s.index + 1} · ${s.text.length > 60 ? `${s.text.slice(0, 60)}…` : s.text}` }));
 
   return (
-    <Collapsible title="Compare engines" description="Generate one segment with two engines, one after the other, and listen A/B">
+    <Collapsible title="Advanced: compare engines" description="Optional. Generate one line with two engines and listen A/B.">
       <div className="flex flex-col gap-3 pt-3">
         {installed.length < 2 ? (
           <p className="text-[12.5px] text-muted">Comparison needs two installed engines with their models. {installed.length === 1 ? "Only one is ready." : "None is ready."}</p>

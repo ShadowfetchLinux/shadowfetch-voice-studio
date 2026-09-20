@@ -12,7 +12,7 @@ vi.mock("@/lib/api", () => ({
     voices: { list: vi.fn() },
     tts: { plan: vi.fn(), assemble: vi.fn(), compareEngines: vi.fn() },
     audio: { peaks: vi.fn() },
-    shell: { pickTextFile: vi.fn(), readTextFile: vi.fn(), fileSrc: (p: string) => p },
+    shell: { pickTextFile: vi.fn(), readTextFile: vi.fn(), fileSrc: (p: string) => p, mediaSrc: async (p: string) => p, releaseMediaSrc: () => undefined },
   },
   isPreviewMock: () => false,
   isTauri: () => false,
@@ -107,9 +107,9 @@ describe("Regenerate selection action", () => {
     await user.click(btn);
     expect(generate).toHaveBeenCalledWith({ mode: "indices", indices: [0, 1] });
 
-    await user.click(screen.getByRole("button", { name: "Generate preview" }));
+    await user.click(screen.getByRole("button", { name: "Preview first line" }));
     expect(generate).toHaveBeenLastCalledWith({ mode: "preview" });
-    await user.click(screen.getByRole("button", { name: "Generate full" }));
+    await user.click(screen.getByRole("button", { name: "Generate" }));
     expect(generate).toHaveBeenLastCalledWith({ mode: "full" });
   });
 });

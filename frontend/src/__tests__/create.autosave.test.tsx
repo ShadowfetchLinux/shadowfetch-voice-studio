@@ -11,7 +11,7 @@ vi.mock("@/lib/api", () => ({
     voices: { list: vi.fn(async () => ({ voices: [] })) },
     tts: { plan: vi.fn(), assemble: vi.fn(), compareEngines: vi.fn() },
     audio: { peaks: vi.fn() },
-    shell: { pickTextFile: vi.fn(), readTextFile: vi.fn(), fileSrc: (p: string) => p },
+    shell: { pickTextFile: vi.fn(), readTextFile: vi.fn(), fileSrc: (p: string) => p, mediaSrc: async (p: string) => p, releaseMediaSrc: () => undefined },
   },
   isPreviewMock: () => false,
   isTauri: () => false,

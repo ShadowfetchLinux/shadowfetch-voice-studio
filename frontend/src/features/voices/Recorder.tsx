@@ -93,7 +93,12 @@ export function Recorder({ onUseTake, activeAssetId, onActiveChange }: RecorderP
           onChange={(e) => setDeviceIndex(e.target.value === "" ? null : Number(e.target.value))}
           disabled={active || inputs.length === 0}
           error={devicesError ?? undefined}
-          hint={devices?.notes?.length ? devices.notes.join(" ") : devices?.backend ? `Capture backend: ${devices.backend}. Monitoring (hearing yourself) is off — not implemented in this version.` : undefined}
+          hint={[
+            devices?.notes?.length ? devices.notes.join(" ") : devices?.backend ? `Capture backend: ${devices.backend}.` : null,
+            settings?.monitor_input ? "Input monitoring is on — use headphones to avoid feedback." : "Hear yourself while recording from Settings → Audio devices (headphones recommended).",
+          ]
+            .filter(Boolean)
+            .join(" ")}
         />
         <Button variant="ghost" icon={<RefreshCw />} onClick={() => void loadDevices()} disabled={active} className="mb-[22px] md:mb-0">
           Rescan
@@ -150,7 +155,7 @@ export function Recorder({ onUseTake, activeAssetId, onActiveChange }: RecorderP
             <Item label="Sample rate">{neg.sample_rate} Hz · {neg.channels === 1 ? "mono" : `${neg.channels} ch`}</Item>
             <Item label="File">{neg.subtype === "PCM_24" ? "24-bit file — device precision not reported" : `${neg.subtype} · ${neg.dtype}`}</Item>
             {Number.isFinite(neg.latency_s) && <Item label="Latency">{(neg.latency_s * 1000).toFixed(0)} ms</Item>}
-            <Item label="Monitoring">{state.monitoring ? "on" : "off (not implemented)"}</Item>
+            <Item label="Monitoring">{state.monitoring ? "on" : "off"}</Item>
           </dl>
         )}
         {state.notes.length > 0 && (

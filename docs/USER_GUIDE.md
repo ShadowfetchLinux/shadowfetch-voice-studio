@@ -2,7 +2,8 @@
 
 ## First run
 The **Setup** page checks, live, what the app found on your machine: FFmpeg, the NVIDIA GPU (with a real CUDA
-test you can run), the Python engine environments, audio devices (with a test tone), writable storage and free
+test you can run), the Python engine environments (a standalone copy under the app data folder, not the
+source tree), audio devices (with a test tone), writable storage and free
 space, and the model weights. Each model shows its source repository, pinned revision, license and download
 size *before* you download it. Chatterbox-Turbo is optional. Nothing is downloaded without your click, and a
 partial download is never reported as installed (use **Verify** if in doubt). You can also point the app at an
@@ -11,15 +12,20 @@ existing model folder.
 ## Voices
 1. **Source** — record with the microphone (pick the device, watch the level meter; clipping is flagged) or
    import WAV/MP3/FLAC (dialog or drag-and-drop). Three guided reading scripts are provided; 30–60 s of natural
-   speech is a good session. Input monitoring is off (no feedback loops).
-2. **Review & trim** — pick a clean 8–15 s excerpt with the trim handles; the app shows the engine's own limits
-   (Qwen: more than 3 s; Chatterbox: more than 5 s, first 10–15 s used). Measurements (peak, silence, clipping)
-   are labelled as heuristics. Optional processing (peak normalise, trim silence, high-pass) is off by default,
-   previewable and applied to a copy — the original is never modified.
+   speech is a good session. Input monitoring is off by default (speakers + a live mic make a
+   feedback loop). Turn it on under Settings → Audio devices if you wear headphones.
+2. **Review & trim** — pick a clean 8–15 s excerpt with the trim handles (**Undo trim** / Ctrl+Z restores the
+   previous range); the app shows the engine's own limits (Qwen: more than 3 s; Chatterbox: more than 5 s,
+   first 10–15 s used). Measurements (peak, silence, clipping) are labelled as heuristics. Optional processing
+   (peak normalise, trim silence, high-pass) is off by default, previewable and applied to a copy — the original
+   is never modified. The saved profile lists that processing history on the derived copy.
 3. **Transcript** — transcribe the excerpt locally (faster-whisper on CPU by default) and *correct it*; you must
    tick "I reviewed this transcript". Changing the selection marks the transcript stale.
 4. **Save** — name, tags, language, and the rights confirmation. Saving a profile stores audio + transcript
-   (the source of truth); engine prompts are caches rebuilt automatically when anything changes.
+   (the source of truth); engine prompts are caches rebuilt automatically when anything changes. After save you
+   can retim a reference (the transcript is marked unreviewed) or open **Dataset workspace** to correct
+   recordings and export a Qwen3-TTS fine-tuning JSONL. There is no Train button — full-parameter 1.7B SFT
+   does not fit 16 GB (see `docs/FINETUNING.md`).
 
 ## Create
 Write or import a script (large editor with autosave), choose a voice/reference and engine, and generate a
@@ -43,10 +49,13 @@ target (Podcast −16 LUFS, Streaming −14, EBU R128 −23) is measured after e
 portable zips (metadata JSON + audio) with size and path-traversal protection on restore.
 
 ## Settings
-Audio devices, engines & models (download / verify / use existing folder / remove / load / unload, idle unload),
-storage (usage, clear regenerable caches — recordings and masters are never touched), privacy (offline mode
-blocks every network request; logs are redacted; local storage is not encrypted), and advanced options.
+Audio devices (including optional input monitoring — headphones only), engines & models (download / verify /
+use existing folder / remove / load / unload, idle unload), storage (usage, clear regenerable caches —
+recordings and masters are never touched), privacy (offline mode blocks every network request; logs are
+redacted; local storage is not encrypted), and advanced options. A fine-tuned Qwen folder whose `config.json`
+says `tts_model_type: custom_voice` is loaded as a speaker-driven checkpoint rather than a reference clone.
 
 ## Keyboard
 `1`–`5` switch pages · `Ctrl+Enter` generate full · `Ctrl+Shift+Enter` preview · `Esc` cancel · arrows nudge trim
-handles (Shift for larger steps) · `Space` toggles master playback when the editor is not focused.
+handles (Shift for larger steps) · `Ctrl+Z` undoes the last trim change · `Space` toggles master playback when
+the editor is not focused.

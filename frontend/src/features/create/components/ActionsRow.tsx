@@ -32,28 +32,29 @@ export function ActionsRow({ selectedIndexes, onRequestCancel }: ActionsRowProps
   const busy = job != null;
   const planned = segments.length > 0;
   const canPlan = !!projectId && !busy && script.trim().length > 0 && !!engineId;
-  const canGenerate = !!projectId && !busy && planned;
+  const canGenerate = !!projectId && !busy && (planned || canPlan);
+  const canRegenerate = !!projectId && !busy && planned;
   const est = planned ? estimateDuration(segments, plan) : null;
   const withTakes = segments.filter((s) => s.status === "ok").length;
 
   return (
     <div className="panel px-4 py-3 flex flex-col gap-3">
       <div className="flex items-center gap-2 flex-wrap">
-        <Button variant="primary" icon={<ListChecks />} disabled={!canPlan} loading={job?.kind === "plan"} onClick={() => void runPlan()}>
+        <Button variant="primary" icon={<Sparkles />} disabled={!canGenerate} loading={job?.kind === "generate" || job?.kind === "plan"} onClick={() => void generate({ mode: "full" })} title="Write a script and pick a voice, then generate. Plans the script first if needed (Ctrl+Enter).">
+          Generate
+        </Button>
+        <Button icon={<Play />} disabled={!canGenerate} onClick={() => void generate({ mode: "preview" })} title="Generate the first line only (Ctrl+Shift+Enter)">
+          Preview first line
+        </Button>
+        <Button variant="ghost" icon={<ListChecks />} disabled={!canPlan} loading={job?.kind === "plan"} onClick={() => void runPlan()} title="Split the script into lines without generating">
           Plan
         </Button>
-        <Button icon={<Play />} disabled={!canGenerate} onClick={() => void generate({ mode: "preview" })} title="Generate the first segment only (Ctrl+Shift+Enter)">
-          Generate preview
-        </Button>
-        <Button icon={<Sparkles />} disabled={!canGenerate} onClick={() => void generate({ mode: "full" })} title="Generate every segment that has no take yet (Ctrl+Enter)">
-          Generate full
-        </Button>
-        <Button variant="ghost" size="sm" disabled={!canGenerate || withTakes === 0} onClick={() => setConfirmAll(true)} title="Make a new take for every segment, including ones that already have takes">
+        <Button variant="ghost" size="sm" disabled={!canRegenerate || withTakes === 0} onClick={() => setConfirmAll(true)} title="Make a new take for every segment, including ones that already have takes">
           Regenerate all
         </Button>
         <Button
           icon={<RefreshCw />}
-          disabled={!canGenerate || selectedIndexes.length === 0}
+          disabled={!canRegenerate || selectedIndexes.length === 0}
           onClick={() => void generate({ mode: "indices", indices: [...selectedIndexes] })}
           title={selectedIndexes.length ? `Segments ${selectedIndexes.map((i) => i + 1).join(", ")}` : "Select text in the editor to pick segments"}
         >
@@ -74,10 +75,10 @@ export function ActionsRow({ selectedIndexes, onRequestCancel }: ActionsRowProps
         {est ? (
           <span className="tabular-nums" title={`${est.measured} segment(s) use measured take durations; ${est.estimated} are estimated at ~${EST_CHARS_PER_SECOND} characters/s; pauses from Segmentation are added.`}>
             {segments.length} segment{segments.length === 1 ? "" : "s"} · approx. {formatTime(est.seconds)}
-            {est.estimated > 0 ? ` (${est.estimated} estimated at ~${EST_CHARS_PER_SECOND} chars/s)` : " (measured)"}
+            {est.estimated > 0 ? ` (${est.estimated} estimated)` : " (measured)"}
           </span>
         ) : (
-          <span>Plan the script to see segment count and an approximate length.</span>
+          <span>Write a script, pick a voice, then Generate.</span>
         )}
         <span className="ml-auto flex items-center gap-2">
           <Kbd>Ctrl</Kbd>+<Kbd>Enter</Kbd> full · <Kbd>Ctrl</Kbd>+<Kbd>Shift</Kbd>+<Kbd>Enter</Kbd> preview · <Kbd>Esc</Kbd> cancel · <Kbd>Space</Kbd> play master

@@ -80,10 +80,34 @@ class Qwen3TTSAdapter(EngineAdapter):
         self.dtype_name = "float32"
         self.model_dir: Path | None = None
         self.revision: str | None = None
+        self.tts_model_type = "base"   # "base" | "custom_voice" (fine-tuned) | other
+        self.speakers: list[str] = []
         self._prompt_cache: dict[str, tuple[float, list]] = {}   # path -> (mtime, items) — avoids re-reading each segment
 
     # ------------------------------------------------------------------ static
     def capabilities(self) -> Capabilities:
+        if self.tts_model_type == "custom_voice":
+            speaker_opts = [{"value": s, "label": s} for s in self.speakers] or [{"value": "default", "label": "Fine-tuned speaker"}]
+            sampling = [c for c in CONTROLS if c.id != "x_vector_only_mode"]
+            speaker = ControlSpec(
+                id="speaker", label="Fine-tuned speaker", type="enum", default=speaker_opts[0]["value"],
+                options=speaker_opts,
+                description="Speaker name trained into this checkpoint (`generate_custom_voice`). Reference audio is not used.")
+            return Capabilities(
+                id=ENGINE_ID, name="Qwen3-TTS fine-tuned (custom voice)", version=package_version("qwen-tts"),
+                model_id=MODEL_ID, model_repo=MODEL_REPO, output_sample_rate=OUTPUT_SR,
+                languages=[Language(code=c, label=l, engine_value=v) for c, l, v in LANGUAGES],
+                reference=ReferenceRequirements(
+                    needs_transcript=False, min_seconds=0.0, max_seconds=30.0, recommended_seconds=(0.0, 0.0),
+                    sample_rate=OUTPUT_SR, channels=1,
+                    notes="This checkpoint is a fine-tuned CustomVoice model. Generation uses the trained speaker id, "
+                          "not a reference clip. Point Settings → Engines & models → Use existing folder at the training output."),
+                controls=[speaker, *sampling], tags=[], max_chars_per_request=MAX_CHARS,
+                supports_cancel=True, cancel_granularity="segment", supports_seed=True, supports_reusable_prompt=True,
+                supports_multi_reference=False, prompt_controls=[], watermark=None, license="Apache-2.0",
+                device=self.device if self.model is not None else intended_device(),
+                notes="Fine-tuned CustomVoice: `generate_custom_voice(speaker=…)`. A leftover reference on the project is ignored.",
+            )
         return Capabilities(
             id=ENGINE_ID, name="Qwen3-TTS 1.7B Base", version=package_version("qwen-tts"), model_id=MODEL_ID,
             model_repo=MODEL_REPO, output_sample_rate=OUTPUT_SR,
@@ -134,12 +158,25 @@ class Qwen3TTSAdapter(EngineAdapter):
             supported = self.model.get_supported_languages()
         except Exception:  # noqa: BLE001
             pass
-        log.info("qwen3-tts loaded in %.1fs device=%s dtype=%s vram=%s langs=%s", time.time() - t0, self.device, self.dtype_name, vram, supported)
+        inner = getattr(self.model, "model", None)
+        self.tts_model_type = str(getattr(inner, "tts_model_type", None) or getattr(self.model, "tts_model_type", None) or "base")
+        self.speakers = []
+        try:
+            raw = self.model.get_supported_speakers()
+            if raw:
+                self.speakers = [str(s) for s in raw]
+        except Exception:  # noqa: BLE001
+            pass
+        log.info("qwen3-tts loaded in %.1fs device=%s dtype=%s type=%s vram=%s langs=%s speakers=%s",
+                 time.time() - t0, self.device, self.dtype_name, self.tts_model_type, vram, supported, self.speakers)
         return {"revision": self.revision, "vram_bytes": vram, "device": self.device, "dtype": self.dtype_name,
+                "tts_model_type": self.tts_model_type, "speakers": self.speakers,
                 "supported_languages": supported, "load_ms": int((time.time() - t0) * 1000)}
 
     def unload(self) -> None:
         self._prompt_cache.clear()
+        self.tts_model_type = "base"
+        self.speakers = []
         if self.model is not None:
             m = self.model
             self.model = None
@@ -214,6 +251,13 @@ class Qwen3TTSAdapter(EngineAdapter):
 
     def prepare_reference(self, reference_path: Path, transcript: str, language: str, cache_path: Path,
                           settings: dict[str, Any] | None = None) -> dict[str, Any]:
+        cache_path = Path(cache_path)
+        if self.tts_model_type == "custom_voice":
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_bytes(b"qwen3-custom-voice")
+            write_prompt_meta(cache_path, {"mode": "custom_voice", "revision": self.revision, "engine_id": ENGINE_ID})
+            return {"path": str(cache_path), "meta": {"mode": "custom_voice", "speakers": self.speakers,
+                                                     "revision": self.revision}}
         reference_path = Path(reference_path)
         if not reference_path.exists():
             raise WorkerError(INVALID_PARAMS, f"Reference file not found: {reference_path}")
@@ -246,6 +290,33 @@ class Qwen3TTSAdapter(EngineAdapter):
         self._prompt_cache = {key: (mtime, items)}   # keep only the most recent prompt in memory
         return items
 
+    def _generate_custom_voice(self, model, text: str, lang_value: str, cfg: dict[str, Any], out_path: Path,
+                               seed: int | None, warnings: list[str], cancel_check) -> GenerateResult:
+        speaker = str(cfg.pop("speaker", None) or (self.speakers[0] if self.speakers else "default"))
+        instruct = cfg.pop("instruct", None)
+        if instruct == "":
+            instruct = None
+        gen_kwargs = {k: cfg[k] for k in GEN_KWARG_IDS if k in cfg}
+        if cancel_check:
+            cancel_check()
+        used_seed = apply_seed(seed)
+        t0 = time.time()
+        wavs, sr = model.generate_custom_voice(text=text, speaker=speaker, language=lang_value, instruct=instruct, **gen_kwargs)
+        elapsed = time.time() - t0
+        if cancel_check:
+            cancel_check()
+        if not wavs:
+            raise WorkerError("EMPTY_AUDIO", "The engine returned no audio for this text.")
+        duration = write_wav_24(Path(out_path), wavs[0], int(sr))
+        if int(sr) != OUTPUT_SR:
+            warnings.append(f"Engine reported {sr} Hz (expected {OUTPUT_SR}).")
+        frames = int(gen_kwargs.get("max_new_tokens") or 2048)
+        if duration >= frames / 12.5 * 0.98:
+            warnings.append("Output hit the max codec frame limit; the text may be truncated — raise 'Max codec frames' or split it.")
+        log.info("qwen3-tts custom_voice generated %.2fs in %.2fs speaker=%s seed=%s", duration, elapsed, speaker, used_seed)
+        return GenerateResult(path=str(out_path), sample_rate=int(sr), duration_s=round(duration, 4), seed=used_seed,
+                              elapsed_s=round(elapsed, 3), warnings=warnings)
+
     # ------------------------------------------------------------------ generation
     def generate(self, text: str, language: str, reference_path: Path | None, transcript: str, out_path: Path,
                  settings: dict[str, Any], seed: int | None = None, prompt_cache_path: Path | None = None,
@@ -260,9 +331,12 @@ class Qwen3TTSAdapter(EngineAdapter):
         lang_value = _language_value(language)
         # Declared defaults are always applied: otherwise the wrapper falls back to the checkpoint's generation_config
         # (max_new_tokens=8192 in the pinned snapshot) while the UI shows 2048 and the truncation warning assumes 2048.
-        cfg = apply_control_defaults(filter_settings(settings, CONTROLS), CONTROLS)
-        x_vector_only = bool(cfg.pop("x_vector_only_mode"))
-        gen_kwargs = {k: cfg[k] for k in GEN_KWARG_IDS}
+        controls = self.capabilities().controls
+        cfg = apply_control_defaults(filter_settings(settings, controls), controls)
+        if self.tts_model_type == "custom_voice":
+            return self._generate_custom_voice(model, text, lang_value, cfg, out_path, seed, warnings, cancel_check)
+        x_vector_only = bool(cfg.pop("x_vector_only_mode", False))
+        gen_kwargs = {k: cfg[k] for k in GEN_KWARG_IDS if k in cfg}
         if cancel_check:
             cancel_check()
 

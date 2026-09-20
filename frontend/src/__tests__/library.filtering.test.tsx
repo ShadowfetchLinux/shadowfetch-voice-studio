@@ -181,4 +181,19 @@ describe("<LibraryPage /> with a mocked worker", () => {
     await waitFor(() => expect(mod.api.projects.delete).toHaveBeenCalledWith("p1"));
     expect(await screen.findByText("Select a project")).toBeInTheDocument();
   });
+
+  it("restores a backup through the native zip picker", async () => {
+    const { mod } = await h;
+    const user = userEvent.setup();
+    mod.api.shell.pickArchiveFile.mockResolvedValue("/home/me/Alpha intro-backup.zip");
+    mod.api.backup.import.mockResolvedValue({ project_id: "p1" });
+    render(<LibraryPage />);
+    await user.click(await screen.findByRole("button", { name: "Restore backup…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Restore a project backup" });
+    await user.click(within(dialog).getByRole("button", { name: "Choose zip…" }));
+    await waitFor(() => expect(mod.api.shell.pickArchiveFile).toHaveBeenCalled());
+    expect(within(dialog).getByLabelText("Backup file (.zip)")).toHaveValue("/home/me/Alpha intro-backup.zip");
+    await user.click(within(dialog).getByRole("button", { name: "Restore" }));
+    await waitFor(() => expect(mod.api.backup.import).toHaveBeenCalledWith("/home/me/Alpha intro-backup.zip"));
+  });
 });

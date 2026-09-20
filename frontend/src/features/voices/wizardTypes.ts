@@ -18,4 +18,4 @@ export type WizardMode = { kind: "new" } | { kind: "addReference"; voice: Voice 
 
 export type WizardStep = 1 | 2 | 3 | 4;
 
-export const STEP_TITLES: Record<WizardStep, string> = { 1: "Source", 2: "Review & trim", 3: "Transcript", 4: "Save" };
+export const STEP_TITLES: Record<WizardStep, string> = { 1: "Audio", 2: "Trim", 3: "Words", 4: "Save" };
