@@ -59,7 +59,8 @@ describe("New voice starts the create-voice flow", () => {
 
     await user.click(screen.getByRole("button", { name: "Record" }));
     expect(await screen.findByLabelText("Input device")).toBeInTheDocument();
-    expect(useAppStore.getState()).toMatchObject({ page: "voices", params: { action: "record" } });
+    expect(useAppStore.getState().page).toBe("voices");
+    expect(useAppStore.getState().params.action).toBe("record");
   });
 
   it("starts import mode from the empty-state Import button", async () => {
