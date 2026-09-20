@@ -54,10 +54,11 @@ Flags: `--skip-build` to reuse an existing `.deb`; `--with-chatterbox` to includ
 ```bash
 scripts/dev.sh             # desktop app in development mode
 scripts/test.sh            # unit tests (add --real for GPU/model integration tests)
-scripts/build.sh           # .deb (+ AppImage) into src-tauri/target/release/bundle/
+scripts/build.sh --deb-only  # supported Linux package
+scripts/build.sh             # also tries an AppImage (best-effort)
 ```
 
-The AppImage bundle is best-effort; **the `.deb` is the supported standalone install**. `linuxdeploy` can fail on some Wayland sessions.
+**The `.deb` is the supported Linux install.** AppImage output is optional: `linuxdeploy` can fail (FUSE or packaging), even when `APPIMAGE_EXTRACT_AND_RUN=1` is set.
 
 ## First run
 

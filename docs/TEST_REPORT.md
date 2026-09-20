@@ -25,7 +25,7 @@ hardware) · **UNVERIFIED** = not run in that environment; manual steps given.
 | Frontend (vitest) | `cd frontend && npm test -- --run` | **104 passed (17 files)** |
 | Frontend typecheck + production build | `cd frontend && npm run build` | **PASS** |
 | Rust shell | `cd src-tauri && cargo test --lib --tests --bins` | **2 passed** (linked against installed WebKitGTK). Supervisor harness: `cargo test --manifest-path src-tauri/tests/supervisor-harness/Cargo.toml` **13 passed**. `cargo test` doctests can fail if `rustdoc` cannot load `libLLVM.so` from the Rust toolchain — not an app defect. |
-| Packaged `.deb` + AppImage | `scripts/build.sh` / `scripts/install-linux.sh` | **PASS** (re-run 2026-09-20) — `Shadowfetch Voice Studio_0.1.1_amd64.deb`. One desktop file (`com.shadowfetch.voicestudio.desktop`). Managed runtime is a real venv under `$XDG_DATA_HOME/com.shadowfetch.voicestudio/runtime` (not a checkout symlink). AppImage bundling with `linuxdeploy` is best-effort and may fail on some Wayland sessions; the `.deb` is the supported standalone install. |
+| Packaged `.deb` + AppImage | `scripts/build.sh` / `scripts/install-linux.sh` | **PASS** (re-run 2026-09-20) — `Shadowfetch Voice Studio_0.1.1_amd64.deb`. One desktop file (`com.shadowfetch.voicestudio.desktop`). Managed runtime is a real venv under `$XDG_DATA_HOME/com.shadowfetch.voicestudio/runtime` (not a checkout symlink). AppImage bundling with `linuxdeploy` is best-effort and may fail (FUSE / icon layout); the `.deb` is the supported standalone install. |
 
 ## 2. Environment diagnostics (`scripts/doctor.sh`, `system.diagnostics`)
 - GPU, driver, VRAM, utilisation, CPU, RAM, free disk, FFmpeg version, audio devices: detected live — nothing hardcoded. **PASS**
