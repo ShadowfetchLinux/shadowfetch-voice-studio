@@ -11,8 +11,8 @@ pkg-config --exists webkit2gtk-4.1 gtk+-3.0 2>/dev/null || die "Tauri system lib
 command -v cargo >/dev/null || die "cargo (Rust) is required"
 [[ -f "$ROOT/backend/requirements/main.lock.txt" ]] || echo "note: backend/requirements/main.lock.txt missing — run scripts/bootstrap.sh to generate locks"
 find "$ROOT/backend/shadowfetch_worker" -name __pycache__ -type d -prune -exec rm -rf {} +   # keep bytecode out of the package
-# linuxdeploy walks PATH and aborts on an unreadable `node` (this machine has
-# /usr/local/bin/node → /root/.hermes/..., which throws Permission denied).
+# linuxdeploy walks PATH and aborts if `node` is a symlink to an unreadable target
+# (for example a root-only install). Skip those entries.
 _sfvs_path=""
 IFS=':' read -ra _sfvs_parts <<< "$PATH"
 for _sfvs_d in "${_sfvs_parts[@]}"; do

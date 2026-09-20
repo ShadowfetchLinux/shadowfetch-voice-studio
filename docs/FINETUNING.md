@@ -25,7 +25,7 @@ that is all the official script supports.
 backend/.venv/bin/python scripts/finetune_preflight.py
 ```
 Estimates VRAM for `sft_12hz.py` (bf16 weights + grads + fp32 AdamW states + fp32 master copy + activations).
-On this machine (RTX 5060 Ti 16 GB) the answer is **does not fit** (~28 GB for 1.7B; ~11 GB for the 0.6B Base
+On a 16 GB NVIDIA GPU the answer is **does not fit** (~28 GB for 1.7B; ~11 GB for the 0.6B Base
 which may fit at batch 1). Exit code 2 = does not fit.
 
 ## 3. Official entry points (run in a git checkout of Qwen3-TTS with the main env)
@@ -40,7 +40,7 @@ git clone https://github.com/QwenLM/Qwen3-TTS && cd Qwen3-TTS
     --train_jsonl train_with_codes.jsonl --batch_size 1 --lr 2e-5 --num_epochs 3 --speaker_name myvoice
 ```
 Known caveats from the upstream repository: `sft_12hz.py` hard-codes `attn_implementation="flash_attention_2"` —
-edit it to `"sdpa"` on this GPU (no flash-attn build for sm_120); checkpoint saving peaks at ~2× model size in
+edit it to `"sdpa"` if flash-attn is not built for your GPU; checkpoint saving peaks at ~2× model size in
 host RAM and is not atomic; reports of progressively faster speech per epoch and lower similarity than zero-shot
 cloning exist.
 
