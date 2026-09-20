@@ -1,5 +1,7 @@
 # Shadowfetch Voice Studio
 
+<img src="src-tauri/icons/128x128.png" alt="Shadowfetch Voice Studio icon" width="96" height="96">
+
 A private, local-only voice cloning studio for Linux. Record or import a clean reference clip, review the
 waveform and transcript, save a reusable voice, then turn a script into speech — entirely on your own machine.
 

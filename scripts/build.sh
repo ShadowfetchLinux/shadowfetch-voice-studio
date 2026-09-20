@@ -41,8 +41,49 @@ if [[ $bundle_rc -ne 0 && "$BUNDLES" == *appimage* && "$BUNDLES" == *deb* ]]; th
   npx --yes @tauri-apps/cli@^2 build --bundles deb "${@:2}"
 fi
 
-# Tauri names the generated desktop file after productName (spaces) and/or the
-# binary. Keep a single Freedesktop id so the app menu shows one launcher.
+# Tauri names generated desktop files and hicolor PNGs after productName and/or
+# the binary. The launcher uses Icon=com.shadowfetch.voicestudio, so restamp both.
+install_hicolor_icons() {
+  local pkg="$1"
+  local svg="$ROOT/src-tauri/icons/app-icon.svg"
+  local hicolor="$pkg/usr/share/icons/hicolor"
+  [[ -f "$svg" ]] || { echo "note: $svg missing — leaving bundled icons"; return 0; }
+  local names=(com.shadowfetch.voicestudio shadowfetch-voice-studio)
+  local size
+  if command -v rsvg-convert >/dev/null; then
+    for size in 16 22 24 32 48 64 96 128 256 512; do
+      install -d "$hicolor/${size}x${size}/apps"
+      rsvg-convert -w "$size" -h "$size" "$svg" \
+        -o "$hicolor/${size}x${size}/apps/com.shadowfetch.voicestudio.png"
+      install -m 644 "$hicolor/${size}x${size}/apps/com.shadowfetch.voicestudio.png" \
+        "$hicolor/${size}x${size}/apps/shadowfetch-voice-studio.png"
+    done
+  else
+    echo "note: rsvg-convert missing — copying PNG icons only"
+    install -d "$hicolor/32x32/apps" "$hicolor/64x64/apps" "$hicolor/128x128/apps" \
+      "$hicolor/256x256/apps" "$hicolor/512x512/apps"
+    local src_png dest_size
+    for dest_size in 32 64 128 256 512; do
+      case "$dest_size" in
+        32) src_png="$ROOT/src-tauri/icons/32x32.png" ;;
+        64) src_png="$ROOT/src-tauri/icons/64x64.png" ;;
+        128) src_png="$ROOT/src-tauri/icons/128x128.png" ;;
+        256) src_png="$ROOT/src-tauri/icons/256x256.png" ;;
+        512) src_png="$ROOT/src-tauri/icons/icon.png" ;;
+      esac
+      local name
+      for name in "${names[@]}"; do
+        install -m 644 "$src_png" "$hicolor/${dest_size}x${dest_size}/apps/${name}.png"
+      done
+    done
+  fi
+  install -d "$hicolor/scalable/apps"
+  local name
+  for name in "${names[@]}"; do
+    install -m 644 "$svg" "$hicolor/scalable/apps/${name}.svg"
+  done
+}
+
 fix_deb_desktop() {
   local deb="$1"
   command -v dpkg-deb >/dev/null || { echo "note: dpkg-deb missing — leaving $deb as bundled"; return 0; }
@@ -54,6 +95,7 @@ fix_deb_desktop() {
   install -d "$tmp/usr/share/applications"
   install -m 644 "$ROOT/src-tauri/linux/com.shadowfetch.voicestudio.desktop" \
     "$tmp/usr/share/applications/com.shadowfetch.voicestudio.desktop"
+  install_hicolor_icons "$tmp"
   mkdir -p "$tmp/DEBIAN"
   cat > "$tmp/DEBIAN/postinst" << 'EOF'
 #!/bin/sh
@@ -75,7 +117,7 @@ for home in $homes; do
   clean_hidden_stub "$home/.local/share/applications/Shadowfetch Voice Studio.desktop"
 done
 command -v update-desktop-database >/dev/null && update-desktop-database -q /usr/share/applications || true
-command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -f -q /usr/share/icons/hicolor || true
 exit 0
 EOF
   chmod 755 "$tmp/DEBIAN/postinst"

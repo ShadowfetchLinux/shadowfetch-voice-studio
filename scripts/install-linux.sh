@@ -62,7 +62,10 @@ else
 fi
 
 command -v update-desktop-database >/dev/null && update-desktop-database -q "$HOME/.local/share/applications" || true
-command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+if command -v gtk-update-icon-cache >/dev/null; then
+  gtk-update-icon-cache -f -q /usr/share/icons/hicolor 2>/dev/null || \
+    sudo gtk-update-icon-cache -f -q /usr/share/icons/hicolor || true
+fi
 
 ok "Shadowfetch Voice Studio is installed as a standalone Linux app"
 echo "  launcher: /usr/bin/shadowfetch-voice-studio"

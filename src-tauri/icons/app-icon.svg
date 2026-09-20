@@ -1,18 +1,43 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    Shadowfetch Voice Studio
+    Navy-to-azure squircle (reads on dark COSMIC/Pop!_OS panels) with a
+    studio microphone and two thick voice-meter bars. Geometry is aligned
+    to a 32-unit grid so 16px and 32px rasters stay distinct.
+  -->
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/>
+    <linearGradient id="bg" x1="0.12" y1="0.05" x2="0.92" y2="0.98">
+      <stop offset="0" stop-color="#123056"/>
+      <stop offset="0.48" stop-color="#2559C4"/>
+      <stop offset="1" stop-color="#4C8DFF"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#F7F5F1" stop-opacity="0.28"/>
+      <stop offset="0.42" stop-color="#F7F5F1" stop-opacity="0"/>
     </linearGradient>
   </defs>
-  <rect x="32" y="32" width="448" height="448" rx="104" fill="url(#g)"/>
-  <rect x="40" y="40" width="432" height="432" rx="96" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="4"/>
-  <!-- waveform bars -->
-  <g stroke="#ffffff" stroke-width="30" stroke-linecap="round">
-    <line x1="126" y1="236" x2="126" y2="276"/>
-    <line x1="182" y1="192" x2="182" y2="320"/>
-    <line x1="238" y1="140" x2="238" y2="372"/>
-    <line x1="294" y1="172" x2="294" y2="340"/>
-    <line x1="350" y1="214" x2="350" y2="298"/>
-    <line x1="406" y1="240" x2="406" y2="272"/>
+
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#bg)"/>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#sheen)"/>
+  <rect x="44" y="44" width="424" height="424" rx="96" fill="none" stroke="#FFFFFF" stroke-opacity="0.28" stroke-width="8"/>
+
+  <!-- Voice meters: two thick bars, asymmetric so it is not a generic EQ. -->
+  <g fill="#FFFFFF" stroke="none">
+    <rect x="96" y="208" width="48" height="128" rx="24"/>
+    <rect x="368" y="160" width="48" height="192" rx="24"/>
+  </g>
+
+  <!-- Studio microphone: capsule, yoke, stem, foot. -->
+  <g fill="#FFFFFF" stroke="none">
+    <rect x="192" y="112" width="128" height="208" rx="64"/>
+    <path d="M176 288c0 44.18 35.82 80 80 80s80-35.82 80-80" fill="none" stroke="#FFFFFF" stroke-width="24" stroke-linecap="round"/>
+    <rect x="244" y="368" width="24" height="40" rx="8"/>
+    <rect x="208" y="400" width="96" height="24" rx="12"/>
+  </g>
+  <!-- Capsule grille (navy, survives as a darker core at 16–32px). -->
+  <g fill="#123056">
+    <rect x="224" y="168" width="64" height="16" rx="8"/>
+    <rect x="224" y="200" width="64" height="16" rx="8"/>
+    <rect x="224" y="232" width="64" height="16" rx="8"/>
   </g>
 </svg>
