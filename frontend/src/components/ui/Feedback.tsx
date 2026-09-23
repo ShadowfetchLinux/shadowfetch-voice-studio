@@ -42,7 +42,7 @@ export function ProgressBar({ current, total, unit, label, caption, size = "md",
         aria-valuemax={indeterminate ? undefined : (total as number)}
         aria-valuenow={indeterminate ? undefined : (current as number)}
         aria-valuetext={indeterminate ? "Working" : String(captionText)}
-        className={cx("relative w-full overflow-hidden rounded-full bg-black/8", size === "sm" ? "h-1.5" : "h-2.5")}
+        className={cx("relative w-full overflow-hidden rounded-full bg-track", size === "sm" ? "h-1.5" : "h-2.5")}
       >
         {indeterminate ? (
           <div className={cx("absolute inset-y-0 w-1/3 rounded-full animate-[sfvs-indeterminate_1.4s_ease-in-out_infinite]", toneClass[tone])} />
@@ -70,7 +70,7 @@ export interface StatusPillProps extends HTMLAttributes<HTMLSpanElement> {
 }
 
 const pillTone: Record<PillTone, string> = {
-  neutral: "bg-black/6 text-text",
+  neutral: "bg-track text-text",
   success: "bg-success-soft text-success",
   warn: "bg-warn-soft text-warn",
   danger: "bg-danger-soft text-danger",

@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -12,7 +11,7 @@ const h = vi.hoisted(async () => {
 vi.mock("@/lib/api", async () => (await h).mod);
 
 import { initialRecorderState, recorderReducer, type RecorderStartResult, type RecorderStopResult } from "@/features/voices/recorderMachine";
-import { Recorder } from "@/features/voices/Recorder";
+import { RecordStep } from "@/features/voices/clone/RecordStep";
 import { workerFailure } from "@/features/voices/testSupport";
 
 const negotiated = { sample_rate: 48000, channels: 1, dtype: "float32", subtype: "PCM_24", hostapi: "ALSA", device_name: "USB Mic", latency_s: 0.012, backend: "sounddevice", precision_note: "File is 24-bit; the microphone's effective precision is not reported by the capture API." };
@@ -90,105 +89,71 @@ describe("recorderReducer", () => {
   });
 });
 
-describe("<Recorder /> with a mocked worker", () => {
+describe("<RecordStep /> (Clone Voice → Record Voice) with a mocked worker", () => {
   beforeEach(async () => {
     const { bus, mod } = await h;
     bus.clear();
     vi.clearAllMocks();
-    mod.api.record.devices.mockResolvedValue({ inputs: [{ index: 3, name: "USB Mic", hostapi: "ALSA", max_input_channels: 1, max_output_channels: 0, default_samplerate: 48000, backend: "sounddevice" }], default_input: 3, backend: "sounddevice", notes: [] });
+    mod.api.record.devices.mockResolvedValue({ inputs: [{ index: 3, name: "USB Mic", hostapi: "ALSA", max_input_channels: 1, max_output_channels: 0, default_samplerate: 48000 }], default_input: 3 });
     mod.api.record.scripts.mockResolvedValue({ scripts: [{ id: "conversational", title: "Everyday conversation", style: "conversational", text: "Okay, so here's what happened this morning.", approx_seconds: 55 }, { id: "calm_narration", title: "Calm narration", style: "calm_narration", text: "The river begins as a thin stream.", approx_seconds: 60 }] });
     mod.api.record.start.mockResolvedValue(startResult);
-    mod.api.record.pause.mockResolvedValue({ session_id: "rec_1", state: "paused" });
-    mod.api.record.resume.mockResolvedValue({ session_id: "rec_1", state: "recording" });
     mod.api.record.stop.mockResolvedValue(stopResult);
   });
 
-  it("records a take: start → live meter → pause/resume → stop → take list → use take", async () => {
+  it("records through the existing record.* API: something to read, one button, a timer, then hands over the take", async () => {
     const { bus, mod } = await h;
     const user = userEvent.setup();
-    const onUseTake = vi.fn();
+    const onRecorded = vi.fn();
     const onActiveChange = vi.fn();
-    function Host() {
-      const [active, setActive] = useState<string | null>(null);
-      return <Recorder onUseTake={(t) => { onUseTake(t); setActive(t.asset_id); }} activeAssetId={active} onActiveChange={onActiveChange} />;
-    }
-    render(<Host />);
-    await waitFor(() => expect(screen.getByText("Everyday conversation")).toBeInTheDocument());
-    expect(screen.getByText(/Okay, so here's what happened/)).toBeInTheDocument();
-    expect(screen.getByText(/hear yourself while recording/i)).toBeInTheDocument();
+    render(<RecordStep onRecorded={onRecorded} onActiveChange={onActiveChange} />);
+    expect(await screen.findByText(/Okay, so here's what happened/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Something else to read" }));
+    expect(screen.getByText(/The river begins/)).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "USB Mic" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Record" }));
-    await waitFor(() => expect(screen.getByTestId("recorder-state")).toHaveTextContent("Recording"));
+    await user.click(screen.getByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Stop recording" })).toBeInTheDocument());
+    expect(mod.api.record.start).toHaveBeenCalledWith(expect.objectContaining({ device_index: null, channels: 1, script_id: "calm_narration" }));
     expect(onActiveChange).toHaveBeenLastCalledWith(true);
-    expect(mod.api.record.start).toHaveBeenCalledWith(expect.objectContaining({ device_index: null, channels: 1, script_id: "conversational", take_number: 1 }));
-    expect(screen.getByText("24-bit file — device precision not reported")).toBeInTheDocument();
-    expect(screen.getByText("USB Mic")).toBeInTheDocument();
-    expect(screen.getByLabelText("Negotiated recording settings")).toHaveTextContent(/Monitoring\s*off/);
+    // no dBFS numbers, sample rates or backend names on this screen
+    expect(screen.queryByText(/dBFS|Hz|ALSA|sounddevice/)).not.toBeInTheDocument();
 
-    act(() => bus.emit("record.level", level({ elapsed_s: 12.34, peak_dbfs: -6.5, clipped: true })));
-    expect(screen.getByTestId("recorder-elapsed")).toHaveTextContent("0:12.3");
-    expect(screen.getByRole("meter")).toHaveAttribute("aria-valuetext", "-6.5 dBFS");
-    expect(screen.getByRole("button", { name: "CLIP" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText(/Clipping was detected/)).toBeInTheDocument();
+    act(() => bus.emit("record.level", level({ elapsed_s: 12.34 })));
+    expect(screen.getByTestId("recorder-elapsed")).toHaveTextContent("0:12");
+    act(() => bus.emit("record.level", level({ elapsed_s: 12.5, clipped: true })));
+    expect(screen.getByText(/too loud — move back/)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Pause" }));
-    await waitFor(() => expect(screen.getByTestId("recorder-state")).toHaveTextContent("Paused"));
-    expect(mod.api.record.pause).toHaveBeenCalledWith("rec_1");
-    await user.click(screen.getByRole("button", { name: "Resume" }));
-    await waitFor(() => expect(screen.getByTestId("recorder-state")).toHaveTextContent("Recording"));
-
-    await user.click(screen.getByRole("button", { name: "Stop" }));
-    await waitFor(() => expect(screen.getByText("Take 1")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Stop recording" }));
+    await waitFor(() => expect(onRecorded).toHaveBeenCalledWith(expect.objectContaining({ asset_id: "rec_1", working_path: "/data/recordings/rec_1/working.wav", duration_s: 42.5 })));
     expect(mod.api.record.stop).toHaveBeenCalledWith("rec_1");
-    expect(screen.getByTestId("recorder-state")).toHaveTextContent("Ready");
     expect(onActiveChange).toHaveBeenLastCalledWith(false);
-    expect(screen.getByText(/43 s · 48000 Hz · peak -4.2 dBFS/)).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Use this take" }));
-    expect(onUseTake).toHaveBeenCalledWith(expect.objectContaining({ asset_id: "rec_1", working_path: "/data/recordings/rec_1/working.wav", duration_s: 42.5 }));
-    expect(screen.getByRole("button", { name: "Selected" })).toBeInTheDocument();
   });
 
-  it("shows Monitoring on when the worker started input playback", async () => {
-    const { mod } = await h;
-    const user = userEvent.setup();
-    mod.api.record.start.mockResolvedValue({ ...startResult, monitoring: true, notes: ["Input monitoring is on. Use headphones to avoid a feedback loop."] });
-    render(<Recorder onUseTake={() => {}} />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Record" })).toBeEnabled());
-    await user.click(screen.getByRole("button", { name: "Record" }));
-    await waitFor(() => expect(screen.getByTestId("recorder-state")).toHaveTextContent("Recording"));
-    expect(screen.getByLabelText("Negotiated recording settings")).toHaveTextContent(/Monitoring\s*on/);
-    expect(screen.getByText(/Input monitoring is on/i)).toBeInTheDocument();
-  });
-
-  it("shows DEVICE_UNAVAILABLE from record.start with a working Retry", async () => {
+  it("explains an unavailable microphone in plain words and lets the user try again", async () => {
     const { mod } = await h;
     const user = userEvent.setup();
     mod.api.record.start.mockRejectedValueOnce(workerFailure("DEVICE_UNAVAILABLE", "Could not open the input device (busy)."));
-    render(<Recorder onUseTake={() => {}} />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Record" })).toBeEnabled());
-    await user.click(screen.getByRole("button", { name: "Record" }));
+    render(<RecordStep onRecorded={() => {}} onActiveChange={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: "Start recording" }));
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Audio device unavailable");
-    expect(alert).toHaveTextContent("Could not open the input device (busy).");
-    expect(screen.getByTestId("recorder-state")).toHaveTextContent("Error");
-    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(alert).toHaveTextContent("Voice Studio can't access that microphone. Choose another microphone or reconnect it.");
+    expect(alert).not.toHaveTextContent("DEVICE_UNAVAILABLE");
+    await user.click(screen.getByRole("button", { name: "OK" }));
+    await user.click(screen.getByRole("button", { name: "Start recording" }));
     await waitFor(() => expect(mod.api.record.start).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.getByTestId("recorder-state")).toHaveTextContent("Recording"));
   });
 
-  it("offers to keep the captured audio when the worker reports DISK_FULL mid-session", async () => {
-    const { bus, mod } = await h;
+  it("keeps the microphone choice for next time", async () => {
+    const { mod } = await h;
     const user = userEvent.setup();
-    render(<Recorder onUseTake={() => {}} />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Record" })).toBeEnabled());
-    await user.click(screen.getByRole("button", { name: "Record" }));
-    await waitFor(() => expect(screen.getByTestId("recorder-state")).toHaveTextContent("Recording"));
-    act(() => bus.emit("record.state", { session_id: "rec_1", state: "error", reason: "DISK_FULL: the disk filled up while recording; the audio captured so far was kept." }));
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Disk full");
-    await user.click(screen.getByRole("button", { name: "Keep what was captured" }));
-    await waitFor(() => expect(mod.api.record.stop).toHaveBeenCalledWith("rec_1"));
-    await waitFor(() => expect(screen.getByText("Take 1")).toBeInTheDocument());
+    const { useAppStore } = await import("@/store/appStore");
+    const saveSettings = vi.fn().mockResolvedValue(null);
+    useAppStore.setState({ saveSettings });
+    render(<RecordStep onRecorded={() => {}} onActiveChange={() => {}} />);
+    await screen.findByRole("option", { name: "USB Mic" });
+    await user.selectOptions(screen.getByRole("combobox"), "3");
+    expect(saveSettings).toHaveBeenCalledWith({ record_device_index: 3 }, { silent: true });
+    await user.click(screen.getByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(mod.api.record.start).toHaveBeenCalledWith(expect.objectContaining({ device_index: 3 })));
   });
 });

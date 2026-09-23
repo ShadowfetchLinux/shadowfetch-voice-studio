@@ -29,7 +29,7 @@ export interface ProjectPreviewProps {
 export function ProjectPreview({ project, tagSuggestions, onChanged, onDeleted }: ProjectPreviewProps) {
   const navigate = useAppStore((s) => s.navigate);
   const routeParams = useAppStore((s) => s.params);
-  // Create → "Export" hands off with navigate("library", {projectId, section: "export"}): open the dialog once.
+  // The project editor's "Export" hands off with navigate("projects", {projectId, section: "export"}): open the dialog once.
   const handledExportRef = useRef<string | null>(null);
   useEffect(() => {
     if (routeParams.section !== "export" || !project || routeParams.projectId !== project.id) return;
@@ -37,7 +37,7 @@ export function ProjectPreview({ project, tagSuggestions, onChanged, onDeleted }
     if (handledExportRef.current === key) return;
     handledExportRef.current = key;
     if (project.master_path) setExporting(true);
-    else toast.info("No master yet", "Assemble the project in Create before exporting.");
+    else toast.info("No master yet", "Assemble the project in the editor before exporting.");
   }, [routeParams.section, routeParams.projectId, project]);
   const engines = useAppStore((s) => s.engines);
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
@@ -154,8 +154,8 @@ export function ProjectPreview({ project, tagSuggestions, onChanged, onDeleted }
       }
       description={`${project.voice_name ?? "No voice"} · ${engineName} · ${project.language.toUpperCase()} · updated ${formatRelative(project.updated_at)}${typeof project.segment_count === "number" ? ` · ${project.generated_count ?? 0} of ${project.segment_count} segments generated` : ""}`}
       actions={
-        <Button size="sm" variant="primary" icon={<Sparkles />} onClick={() => navigate("create", { projectId: project.id })}>
-          Open in Create
+        <Button size="sm" variant="primary" icon={<Sparkles />} onClick={() => navigate("editor", { projectId: project.id })}>
+          Open in Editor
         </Button>
       }
     >
@@ -178,7 +178,7 @@ export function ProjectPreview({ project, tagSuggestions, onChanged, onDeleted }
               </p>
             </>
           ) : (
-            <EmptyState compact icon={<AudioLines />} title="No master yet" text="Generate and assemble the project to hear it here." action={<Button onClick={() => navigate("create", { projectId: project.id })}>Open in Create</Button>} />
+            <EmptyState compact icon={<AudioLines />} title="No master yet" text="Generate and assemble the project to hear it here." action={<Button onClick={() => navigate("editor", { projectId: project.id })}>Open in Editor</Button>} />
           )}
         </section>
 

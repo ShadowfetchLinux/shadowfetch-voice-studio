@@ -58,7 +58,7 @@ export interface WaveformProps {
 const RULER_H = 20;
 const HANDLE_W = 10;
 
-const COLORS = {
+const FALLBACK_COLORS = {
   bg: "#faf9f6",
   ruler: "#f1eee8",
   rulerText: "#656d7a",
@@ -70,6 +70,24 @@ const COLORS = {
   playhead: "#1f2328",
   marker: "#b45309",
 };
+
+/** Canvas colours from the theme tokens (light or dark), falling back to the light palette. */
+function themeColors(el: Element | null): typeof FALLBACK_COLORS {
+  const cs = el && typeof getComputedStyle === "function" ? getComputedStyle(el) : null;
+  const v = (name: string, fallback: string) => cs?.getPropertyValue(name).trim() || fallback;
+  return {
+    bg: v("--color-panel-alt", FALLBACK_COLORS.bg),
+    ruler: v("--color-wave-ruler", FALLBACK_COLORS.ruler),
+    rulerText: v("--color-muted", FALLBACK_COLORS.rulerText),
+    grid: v("--color-border", FALLBACK_COLORS.grid),
+    wave: v("--color-accent", FALLBACK_COLORS.wave),
+    waveDim: v("--color-wave-dim", FALLBACK_COLORS.waveDim),
+    selection: v("--color-wave-selection", FALLBACK_COLORS.selection),
+    selectionEdge: v("--color-accent-hover", FALLBACK_COLORS.selectionEdge),
+    playhead: v("--color-text", FALLBACK_COLORS.playhead),
+    marker: v("--color-warn", FALLBACK_COLORS.marker),
+  };
+}
 
 /**
  * Canvas waveform with playhead, click/drag seek, optional trim selection with draggable +
@@ -176,6 +194,7 @@ export function Waveform({
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
+    const COLORS = themeColors(canvas);
 
     // background + ruler strip
     ctx.fillStyle = COLORS.bg;

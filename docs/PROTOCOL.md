@@ -85,6 +85,7 @@ Paths are always absolute and must be inside the app data dir or explicitly user
 - `audio.prepare_reference` `{asset_id, start_s, end_s, engine_id, processing?:{normalize_peak_dbfs?:-3}}` → `{reference_id, path, sample_rate, channels, duration_s, stats}` — derived file matching the engine's requirements (sample rate/channels), stored under `data/voices/<voice_id?>/references/`.
 - `audio.preview_processing` `{path, processing:{...}}` → `{path}` (temporary copy for A/B; reversible)
 - `audio.play_device_test` `{device_index?}` → `{ok}` (plays a short tone; used by setup)
+- `audio.suggest_reference` `{asset_id | path, engine_id?}` → `{start_s, end_s, duration_s, reliable, edges_clean, speech_ratio, speech_s, total_s, noise_floor_dbfs, speech_level_dbfs, snr_db, peak_dbfs, issues:[{code, message, severity:"warn"|"block", heuristic:true}], recommended_seconds, min_seconds, max_seconds, engine_id}` — a phrase-aligned clean range inside the engine's reference window (read-only; scans at most the first 5 minutes). `reliable=false` → let the user trim by hand.
 
 ### record
 - `record.devices` → `{inputs:[Device], default_input}`
@@ -96,7 +97,7 @@ Paths are always absolute and must be inside the app data dir or explicitly user
 
 ### transcribe
 - `transcribe.models` → `{models:[{id, repo, size_bytes?, installed:bool, device:"cpu"|"cuda"}]}`
-- `transcribe.run` `{path, start_s?, end_s?, model_id?, language?, device?:"cpu"|"cuda"}` → `{text, language, language_probability, segments:[{start,end,text}], model_id, device, duration_s, elapsed_s}` (**GPU** only when device == "cuda")
+- `transcribe.run` `{path, start_s?, end_s?, model_id?, language?, device?:"cpu"|"cuda"}` → `{text, language, language_probability, segments:[{start,end,text,avg_logprob?,no_speech_prob?}], confidence?, model_id, device, duration_s, elapsed_s}` (**GPU** only when device == "cuda"; `confidence` = duration-weighted mean token probability, a heuristic)
 
 ### engines
 - `engine.list` → `{engines:[{id, name, installed:bool, state, model_state, capabilities?:Capabilities}]}`
@@ -121,20 +122,28 @@ The UI renders **only** what appears here.
 
 ### tts (project-level orchestration, main worker)
 - `tts.plan` `{project_id, script_text, engine_id, options:{max_chars?, paragraph_pause_ms?, sentence_pause_ms?, pronunciation:[{from,to}], spell_numbers?:bool}}` → `{segments:[{index, paragraph, text, normalized_text, substitutions:[{from,to,count}], char_count}], engine_id, warnings}`
-- `tts.generate` **GPU** `{project_id, segment_indices?:[...] , take_label?, engine_id, reference_id, language, settings, seed?}` → `{takes:[{segment_index, take_id, path, duration_s, seed}], skipped:[...], elapsed_s}` — progress `"Generating segment 3 of 12"`. Keeps completed segments on cancel/failure.
+- `tts.generate` **GPU** `{project_id, segment_indices?:[...] , take_label?, engine_id, reference_id, language, settings, seed?, regenerate_all?, only_changed?}` → `{takes:[{segment_index, take_id, path, duration_s, seed}], skipped:[...], elapsed_s}` — progress `"Generating segment 3 of 12"`. Keeps completed segments on cancel/failure. Default: every segment without a usable selected take. `only_changed`: every segment whose selected take was not made with this engine, reference (id + fingerprint), language and controls (takes from before migration 0002 never match). When nothing needs generating the engine is not loaded.
 - `tts.assemble` `{project_id, take_selection?:{segment_index:take_id}, paragraph_pause_ms?, sentence_pause_ms?}` → `{master_path, duration_s, sample_rate, segments_used}`
 - `tts.compare_engines` **GPU** `{project_id, engine_ids:[...], segment_index}` → `{results:[{engine_id, take_id, path, loudness_matched_preview_path}]}` (sequential; originals untouched)
 
+### speak (the Speak screen's scratch project — jobs/speak.py)
+- `speak.session` `{history_limit?:10}` → `{project_id, text, script_version, voice_id, engine_id, language, settings, history:[SpeechEntry]}` — creates the hidden scratch project on first use (id kept in `settings.speak_project_id`, recreated if deleted); `voice_id` is null when that voice was deleted or archived.
+- `speak.history` `{limit?:30}` → `{history:[SpeechEntry]}` (newest first)
+- `speak.remember` `{project_id, text, voice_id?, keep?:30}` → `SpeechEntry & {pruned:{takes_removed, segments_removed, history_removed}}` — snapshots the assembled master into its own file, then prunes superseded takes/segments of the scratch project and history beyond `keep`. Only the scratch project is accepted.
+- `speak.forget` `{id}` → `{ok}` (removes the entry and its file)
+
+`SpeechEntry = {id, project_id, text, voice_id, voice_name, engine_id, path, duration_s, sample_rate, created_at, exists}`
+
 ### voices / projects / library (persistence)
 - `voices.create` `{name, tags, language, rights_confirmed:true, asset_id, trim:{start_s,end_s}, transcript, engine_id?, processing:[...]}` → `Voice`
-- `voices.list` / `voices.get {id}` / `voices.update {id, patch}` / `voices.delete {id, force?}` (warns with `details.used_by_projects` unless force)
+- `voices.list` / `voices.get {id}` / `voices.update {id, patch}` / `voices.delete {id, force?}` (warns with `details.used_by_projects` unless force; the Speak scratch project does not count)
 - `voices.add_reference {voice_id, asset_id, trim, transcript, processing?, label?, select?, engine_id?}` → `Reference` ; `voices.select_reference {voice_id, reference_id}` ; `voices.update_reference {reference_id, patch:{transcript?, transcript_confirmed?, transcript_source?, label?, trim?, processing?}}` → `Reference` (a transcript, trim, or processing change invalidates derived files and prompt caches; trim/processing without an explicit `transcript_confirmed` marks the transcript unreviewed)
 - `dataset.export {voice_id, out_dir, reference_id?}` → `{path, jsonl, samples, skipped, reference, total_seconds}`
 - `dataset.preflight {params?, batch?, seq?}` → `{gpu, vram_total_gb, vram_free_gb, estimate_gb, fits, verdict}` (does not train)
   `Reference` rows carry `trim`, `fingerprint`, `derived` (per engine) and an `asset` summary `{id, kind, source, original_name, original_path, working_path, duration_s, sample_rate, channels}` so the UI can re-transcribe. When `engine_id` is given on create/add, the trim is validated against that engine's reference window (`min_seconds` is exclusive).
 - `projects.create` `{name, voice_id?, reference_id?, engine_id?, folder?}` → `Project`
 - `projects.get {id}` → `{project, script:{text, version, updated_at}|null, segments:[{id, index, paragraph, text, normalized_text, substitutions, char_count, selected_take_id, takes:[Take]}], exports:[...]}`
-- `projects.list {query?, tags?, favorite?, archived?, sort?}` / `projects.get {id}` (includes script, segments, takes, exports) / `projects.update {id, patch}` / `projects.duplicate {id}` / `projects.archive {id, archived}` / `projects.delete {id, confirm:true}`
+- `projects.list {query?, tags?, favorite?, archived?, sort?, include_speak?}` (the Speak scratch project is left out unless `include_speak`) / `projects.get {id}` (includes script, segments, takes, exports) / `projects.update {id, patch}` / `projects.duplicate {id}` / `projects.archive {id, archived}` / `projects.delete {id, confirm:true}`
 - `projects.save_script {id, text}` → `{script_version}` (autosave; keeps versions)
 - `projects.select_take {id, segment_index, take_id}`
 - `library.search {query}` → `{projects:[...], voices:[...]}`

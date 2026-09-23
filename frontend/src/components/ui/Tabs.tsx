@@ -74,7 +74,7 @@ export function Tabs<K extends string = string>({ items, value, onChange, varian
           >
             {it.icon}
             {it.label}
-            {it.badge != null && <span className="ml-0.5 text-[11px] px-1.5 rounded-full bg-black/6 text-muted">{it.badge}</span>}
+            {it.badge != null && <span className="ml-0.5 text-[11px] px-1.5 rounded-full bg-track text-muted">{it.badge}</span>}
           </button>
         );
       })}

@@ -298,6 +298,12 @@ export interface Settings {
   onboarding_done: boolean;
   rights_notice_accepted: boolean;
   engine_settings: Record<string, Record<string, unknown>>;
+  /** The hidden scratch project behind the Speak screen (created by `speak.session`). */
+  speak_project_id?: string | null;
+  /** Play a Speak result as soon as it is ready. */
+  speak_autoplay?: boolean;
+  /** Save Audio: optional named loudness target (`export.loudness_targets` id). */
+  export_loudness_target?: LoudnessTargetId | null;
   extra: Record<string, unknown>;
 }
 export type SettingsPatch = Partial<Settings>;
@@ -519,6 +525,8 @@ export interface TranscribeSegment {
   start: number;
   end: number;
   text: string;
+  avg_logprob?: number | null;
+  no_speech_prob?: number | null;
 }
 
 export interface TranscribeResult {
@@ -526,6 +534,8 @@ export interface TranscribeResult {
   language: string;
   language_probability: number;
   segments: TranscribeSegment[];
+  /** Duration-weighted mean token probability, 0..1 (heuristic); null when the model reported none. */
+  confidence?: number | null;
   model_id: string;
   device: "cpu" | "cuda";
   duration_s: number;
@@ -734,6 +744,10 @@ export interface TtsGenerateParams {
   language: string;
   settings: EngineSettings;
   seed?: number | null;
+  /** Make a new take for every segment. */
+  regenerate_all?: boolean;
+  /** Only segments whose selected take was not made with this voice audio, engine, language and controls (Speak). */
+  only_changed?: boolean;
 }
 
 export interface GeneratedTake {
@@ -748,6 +762,7 @@ export interface TtsGenerateResult {
   takes: GeneratedTake[];
   skipped: number[] | Array<{ segment_index: number; reason?: string }>;
   elapsed_s: number;
+  warnings?: string[];
 }
 
 export interface TtsAssembleParams {
@@ -1065,6 +1080,8 @@ export interface ProjectsListParams {
   archived?: boolean | null;
   sort?: ProjectSort;
   limit?: number;
+  /** The Speak screen's scratch project is left out unless this is true. */
+  include_speak?: boolean;
 }
 
 export interface ProjectsListResult {
@@ -1133,6 +1150,84 @@ export interface BackupExportResult {
 
 export interface BackupImportResult {
   project_id: string;
+}
+
+// ---------------------------------------------------------------------------
+// speak.*  (the Speak screen's scratch project and Recent list — jobs/speak.py)
+// ---------------------------------------------------------------------------
+
+/** One finished Speak result; `path` is its own file (never overwritten by the next Speak). */
+export interface SpeechEntry {
+  id: string;
+  project_id: string;
+  text: string;
+  voice_id: string | null;
+  voice_name: string | null;
+  engine_id: string | null;
+  path: string;
+  duration_s: number | null;
+  sample_rate: number | null;
+  created_at: string;
+  /** The audio file is still on disk. */
+  exists: boolean;
+}
+
+export interface SpeakSession {
+  project_id: string;
+  text: string;
+  script_version: number;
+  voice_id: string | null;
+  engine_id: string | null;
+  language: string;
+  settings: Record<string, unknown>;
+  history: SpeechEntry[];
+}
+
+export interface SpeakRememberParams {
+  project_id: string;
+  text: string;
+  voice_id?: string | null;
+  keep?: number;
+}
+
+export type SpeakRememberResult = SpeechEntry & { pruned: { takes_removed: number; segments_removed: number; history_removed: number } };
+
+// ---------------------------------------------------------------------------
+// audio.suggest_reference (automatic reference selection)
+// ---------------------------------------------------------------------------
+
+/** A heuristic finding about a voice sample. `block` = the sample cannot be used as it is. */
+export interface SampleIssue {
+  code: "NO_SPEECH" | "TOO_SHORT" | "TOO_QUIET" | "CLIPPING" | "NOISY" | "MOSTLY_SILENT" | "SHORT" | string;
+  message: string;
+  severity: "warn" | "block";
+  heuristic: true;
+}
+
+export interface SuggestReferenceParams {
+  path?: string;
+  asset_id?: string;
+  engine_id?: string;
+}
+
+export interface SuggestReferenceResult {
+  start_s: number;
+  end_s: number;
+  duration_s: number;
+  /** A phrase-aligned section with clean edges and enough speech was found. */
+  reliable: boolean;
+  edges_clean: boolean;
+  speech_ratio: number;
+  speech_s: number;
+  total_s: number;
+  snr_db: number;
+  peak_dbfs: number;
+  issues: SampleIssue[];
+  recommended_seconds: [number, number];
+  min_seconds: number;
+  max_seconds: number;
+  engine_id: string;
+  path: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1270,6 +1365,7 @@ export interface Methods {
   "audio.prepare_reference": { params: PrepareReferenceParams; result: PrepareReferenceResult };
   "audio.preview_processing": { params: PreviewProcessingParams; result: { path: string } };
   "audio.play_device_test": { params: PlayDeviceTestParams; result: { ok: boolean } };
+  "audio.suggest_reference": { params: SuggestReferenceParams; result: SuggestReferenceResult };
 
   "record.devices": { params: Record<string, never>; result: RecordDevicesResult };
   "record.start": { params: RecordStartParams; result: RecordStartResult };
@@ -1316,6 +1412,11 @@ export interface Methods {
   "projects.delete": { params: ProjectDeleteParams; result: { ok: boolean } };
   "projects.save_script": { params: SaveScriptParams; result: SaveScriptResult };
   "projects.select_take": { params: SelectTakeParams; result: { ok: boolean } };
+
+  "speak.session": { params: { history_limit?: number }; result: SpeakSession };
+  "speak.history": { params: { limit?: number }; result: { history: SpeechEntry[] } };
+  "speak.remember": { params: SpeakRememberParams; result: SpeakRememberResult };
+  "speak.forget": { params: { id: string }; result: { ok: boolean } };
 
   "library.search": { params: LibrarySearchParams; result: LibrarySearchResult };
   "library.folders": { params: Record<string, never>; result: LibraryFoldersResult };

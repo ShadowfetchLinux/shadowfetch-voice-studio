@@ -14,9 +14,12 @@ import type {
   ModelInfo,
   Progress,
   Project,
+  Reference,
   RuntimeStatus,
   Settings,
+  SpeechEntry,
   StorageUsage,
+  Voice,
   WorkerErrorShape,
   WorkerStatus,
 } from "./protocol";
@@ -31,6 +34,49 @@ type Listener = (payload: unknown) => void;
 
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * A playable "speech-like" WAV as a data: URL (8 kHz, 8-bit): tone bursts with pauses, so players, scrubbers and the
+ * waveform work in the browser preview. It is obviously synthetic — nothing is generated from text.
+ */
+function mockWav(seconds: number, seed = 1): string {
+  const sr = 8000;
+  const n = Math.max(1, Math.round(seconds * sr));
+  const bytes = new Uint8Array(44 + n);
+  const dv = new DataView(bytes.buffer);
+  const str = (o: number, t: string) => [...t].forEach((c, i) => (bytes[o + i] = c.charCodeAt(0)));
+  str(0, "RIFF");
+  dv.setUint32(4, 36 + n, true);
+  str(8, "WAVEfmt ");
+  dv.setUint32(16, 16, true);
+  dv.setUint16(20, 1, true);
+  dv.setUint16(22, 1, true);
+  dv.setUint32(24, sr, true);
+  dv.setUint32(28, sr, true);
+  dv.setUint16(32, 1, true);
+  dv.setUint16(34, 8, true);
+  str(36, "data");
+  dv.setUint32(40, n, true);
+  const f = 140 + 30 * (seed % 5);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const phrase = (t % 2.6) < 2.1 ? 1 : 0; // ~2 s phrases, 0.5 s pauses
+    const env = phrase * (0.55 + 0.45 * Math.abs(Math.sin(2 * Math.PI * 3 * t)));
+    bytes[44 + i] = 128 + Math.round(60 * env * Math.sin(2 * Math.PI * f * t));
+  }
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return `data:audio/wav;base64,${btoa(bin)}`;
+}
+
+/** Min/max envelope of `mockWav` for the waveform. */
+function mockPeaks(seconds: number, points = 800): Array<[number, number]> {
+  return Array.from({ length: points }, (_, i) => {
+    const t = (i / points) * seconds;
+    const a = (t % 2.6) < 2.1 ? 0.25 + 0.2 * Math.abs(Math.sin(2 * Math.PI * 3 * t)) : 0.01;
+    return [-a, a];
+  });
 }
 
 function fail(code: WorkerErrorShape["code"], message: string, details: Record<string, unknown> = {}, recoverable = true): never {
@@ -101,6 +147,12 @@ const qwenCaps: Capabilities = {
   license: "Apache-2.0",
 };
 
+interface MockAsset {
+  id: string;
+  path: string;
+  seconds: number;
+}
+
 interface MockState {
   settings: Settings;
   engines: EngineInfo[];
@@ -108,12 +160,53 @@ interface MockState {
   projects: Project[];
   status: WorkerStatus;
   downloads: Map<string, { cancelled: boolean }>;
+  voices: Voice[];
+  assets: Map<string, MockAsset>;
+  speak: { projectId: string; text: string; voiceId: string | null; settings: Record<string, unknown>; history: SpeechEntry[]; lastText: string };
+  cancelled: Set<string>;
+  recording: { sessionId: string; started: number; timer: number } | null;
+}
+
+/** `?fresh` in the preview URL starts with no voices and no models (first run). */
+function freshRun(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).has("fresh");
+  } catch {
+    return false;
+  }
+}
+
+let mockSeq = 0;
+function mockId(prefix: string): string {
+  mockSeq += 1;
+  return `${prefix}_mock${mockSeq}${Math.random().toString(16).slice(2, 6)}`;
+}
+
+function mockVoice(name: string, seconds: number, seed: number, assets: Map<string, MockAsset>, daysAgo = 0): Voice {
+  const created = new Date(Date.now() - daysAgo * 86400_000).toISOString();
+  const asset: MockAsset = { id: mockId("asset"), path: mockWav(seconds + 4, seed), seconds: seconds + 4 };
+  assets.set(asset.id, asset);
+  const vid = mockId("voice");
+  const ref: Reference = {
+    id: mockId("ref"), voice_id: vid, asset_id: asset.id, label: null, start_s: 1.2, end_s: 1.2 + seconds,
+    transcript: `Preview transcript ${MOCK}`, transcript_source: "asr", transcript_confirmed: false, created_at: created,
+    asset: { id: asset.id, kind: "reference", source: "import", original_name: "sample.wav", original_path: asset.path, working_path: asset.path, duration_s: asset.seconds, sample_rate: 8000, channels: 1, created_at: created },
+  };
+  return { id: vid, name, tags: [], language: "en", rights_confirmed: true, notes: MOCK, selected_reference_id: ref.id, favorite: false, archived: false, created_at: created, updated_at: created, references: [ref] };
 }
 
 function initialState(): MockState {
   const now = new Date().toISOString();
+  const fresh = freshRun();
+  const assets = new Map<string, MockAsset>();
+  const voices = fresh ? [] : [mockVoice("Bob", 11.8, 1, assets, 3), mockVoice("Sarah", 13.4, 2, assets, 12), mockVoice("Narrator", 9.6, 3, assets, 40)];
   return {
-    settings: { ...defaultSettings },
+    assets,
+    voices,
+    cancelled: new Set(),
+    recording: null,
+    speak: { projectId: "proj_speak_mock", text: "", voiceId: voices[0]?.id ?? null, settings: {}, history: [], lastText: "" },
+    settings: { ...defaultSettings, speak_autoplay: true, speak_project_id: "proj_speak_mock", onboarding_done: !fresh },
     status: { running: true, restarts: 0, last_error: null, stopped: false },
     downloads: new Map(),
     engines: [
@@ -121,9 +214,9 @@ function initialState(): MockState {
       { id: "chatterbox-turbo", name: `Chatterbox-Turbo ${MOCK}`, installed: false, state: "unloaded", model_state: "missing", optional: true },
     ],
     models: [
-      { id: "qwen3-tts-12hz-1.7b-base", engine_id: "qwen3-tts-base", kind: "tts", repo: "Qwen/Qwen3-TTS-12Hz-1.7B-Base", revision_pinned: null, size_bytes: null, approx_size_bytes: 4_000_000_000, license: "Apache-2.0", license_url: "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base", state: "missing", description: `Primary engine ${MOCK}` },
+      { id: "qwen3-tts-12hz-1.7b-base", engine_id: "qwen3-tts-base", kind: "tts", repo: "Qwen/Qwen3-TTS-12Hz-1.7B-Base", revision_pinned: "fd4b254389122332181a7c3db7f27e918eec64e3", size_bytes: null, approx_size_bytes: 4_540_000_000, license: "Apache-2.0", license_url: "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base", state: fresh ? "missing" : "installed", description: `Primary engine ${MOCK}` },
       { id: "chatterbox-turbo", engine_id: "chatterbox-turbo", kind: "tts", repo: "ResembleAI/chatterbox-turbo", revision_pinned: null, size_bytes: null, approx_size_bytes: 1_200_000_000, license: "MIT (code) / see model card (weights)", license_url: "https://huggingface.co/ResembleAI/chatterbox-turbo", state: "missing", description: `Optional secondary engine ${MOCK}` },
-      { id: "faster-whisper-small.en", kind: "asr", repo: "Systran/faster-whisper-small.en", revision_pinned: null, size_bytes: null, approx_size_bytes: 490_000_000, license: "MIT", state: "missing", description: `English transcription ${MOCK}` },
+      { id: "faster-whisper-small.en", kind: "asr", repo: "Systran/faster-whisper-small.en", revision_pinned: null, size_bytes: null, approx_size_bytes: 490_000_000, license: "MIT", state: fresh ? "missing" : "installed", description: `English transcription ${MOCK}` },
       { id: "faster-whisper-base.en", kind: "asr", repo: "Systran/faster-whisper-base.en", revision_pinned: null, size_bytes: null, approx_size_bytes: 150_000_000, license: "MIT", state: "missing", description: `Smaller transcription ${MOCK}` },
     ],
     projects: [1, 2, 3].map((n) => ({
@@ -240,8 +333,6 @@ export function createMockTransport(): Transport {
         return { ok: true };
       case "record.devices":
         return { inputs: mockDiagnostics(state).audio.inputs, default_input: 0 };
-      case "record.scripts":
-        return { scripts: [] };
       case "transcribe.models":
         return { models: state.models.filter((m) => m.kind === "asr").map((m) => ({ id: m.id, repo: m.repo, size_bytes: m.approx_size_bytes ?? undefined, installed: m.state === "installed", device: "cpu" })) };
 
@@ -352,14 +443,179 @@ export function createMockTransport(): Transport {
       case "projects.get":
         fail("NOT_FOUND", `Project detail is not available in the preview mock`);
         break;
+      // ---------------------------------------------------------------- voices
       case "voices.list":
-        return { voices: [] };
+        return { voices: state.voices.map((v) => ({ ...v })) };
+      case "voices.get":
+        return { ...(state.voices.find((v) => v.id === params.id) ?? fail("NOT_FOUND", "voice not found")) };
+      case "voices.create": {
+        if (params.rights_confirmed !== true) fail("INVALID_PARAMS", "rights_confirmed must be true");
+        const asset = state.assets.get(String(params.asset_id)) ?? fail("NOT_FOUND", "asset not found");
+        const trim = params.trim as { start_s: number; end_s: number };
+        const v = mockVoice(String(params.name), trim.end_s - trim.start_s, state.voices.length + 4, state.assets);
+        v.references![0] = { ...v.references![0]!, asset_id: asset.id, start_s: trim.start_s, end_s: trim.end_s, transcript: String(params.transcript), asset: { ...v.references![0]!.asset!, id: asset.id, working_path: asset.path, original_path: asset.path, duration_s: asset.seconds } };
+        state.voices.unshift(v);
+        return { ...v };
+      }
+      case "voices.update": {
+        const v = state.voices.find((x) => x.id === params.id) ?? fail("NOT_FOUND", "voice not found");
+        Object.assign(v, params.patch as Partial<Voice>, { updated_at: new Date().toISOString() });
+        return { ...v };
+      }
+      case "voices.delete":
+        state.voices = state.voices.filter((v) => v.id !== params.id);
+        if (state.speak.voiceId === params.id) state.speak.voiceId = null;
+        return { ok: true };
+      case "voices.add_reference": {
+        const v = state.voices.find((x) => x.id === params.voice_id) ?? fail("NOT_FOUND", "voice not found");
+        const asset = state.assets.get(String(params.asset_id)) ?? fail("NOT_FOUND", "asset not found");
+        const trim = params.trim as { start_s: number; end_s: number };
+        const base = v.references![0]!;
+        const ref: Reference = { ...base, id: mockId("ref"), asset_id: asset.id, start_s: trim.start_s, end_s: trim.end_s, transcript: String(params.transcript), asset: { ...base.asset!, id: asset.id, working_path: asset.path, duration_s: asset.seconds } };
+        v.references = [...(v.references ?? []), ref];
+        if (params.select) v.selected_reference_id = ref.id;
+        return ref;
+      }
+      case "voices.select_reference": {
+        const v = state.voices.find((x) => x.id === params.voice_id) ?? fail("NOT_FOUND", "voice not found");
+        v.selected_reference_id = String(params.reference_id);
+        return { ...v };
+      }
+      case "voices.update_reference": {
+        for (const v of state.voices) {
+          const r = v.references?.find((x) => x.id === params.reference_id);
+          if (r) {
+            const patch = params.patch as { trim?: { start_s: number; end_s: number }; transcript?: string };
+            if (patch.trim) Object.assign(r, patch.trim);
+            if (patch.transcript) r.transcript = patch.transcript;
+            return { ...r };
+          }
+        }
+        return fail("NOT_FOUND", "reference not found");
+      }
+
+      // ---------------------------------------------------------------- audio / record / transcribe
+      case "audio.peaks": {
+        const asset = [...state.assets.values()].find((a) => a.path === params.path);
+        const secs = asset?.seconds ?? 10;
+        return { points: 800, duration_s: secs, sample_rate: 8000, peaks: mockPeaks(secs) };
+      }
+      case "audio.import": {
+        progress(id, { stage: "copy", message: "Copying the original file" });
+        await delay(500);
+        const seconds = 34;
+        const a: MockAsset = { id: mockId("asset"), path: mockWav(seconds, 7), seconds };
+        state.assets.set(a.id, a);
+        return { asset_id: a.id, original_path: a.path, working_path: a.path, probe: { format: "wav", codec: "pcm", duration_s: seconds, sample_rate: 48000, channels: 1, size_bytes: 3_000_000 }, peaks_path: "", stats: { duration_s: seconds, sample_rate: 48000, channels: 1, peak_dbfs: -4, rms_dbfs: -20, clipping_samples: 0, leading_silence_s: 0.4, trailing_silence_s: 0.5, silence_ratio: 0.2, warnings: [] } };
+      }
+      case "audio.suggest_reference": {
+        await delay(500);
+        const a = state.assets.get(String(params.asset_id)) ?? fail("NOT_FOUND", "asset not found");
+        if (a.seconds < 4) return { start_s: 0, end_s: a.seconds, duration_s: a.seconds, reliable: false, edges_clean: false, speech_ratio: 0.9, speech_s: a.seconds * 0.8, total_s: a.seconds, snr_db: 40, peak_dbfs: -6, issues: [{ code: "TOO_SHORT", message: "too short (mock)", severity: "block", heuristic: true }], recommended_seconds: [8, 15], min_seconds: 3, max_seconds: 30, engine_id: "qwen3-tts-base", path: a.path };
+        const start = 2.55;
+        const end = Math.min(a.seconds, start + 2.6 * 4 + 2.15);
+        return { start_s: start, end_s: end, duration_s: end - start, reliable: true, edges_clean: true, speech_ratio: 0.84, speech_s: a.seconds * 0.8, total_s: a.seconds, snr_db: 42, peak_dbfs: -5, issues: [], recommended_seconds: [8, 15], min_seconds: 3, max_seconds: 30, engine_id: "qwen3-tts-base", path: a.path };
+      }
+      case "transcribe.run": {
+        const asr = state.models.find((m) => m.id === state.settings.asr_model);
+        if (asr && asr.state !== "installed") fail("MODEL_MISSING", "The transcription model is not installed", { model_id: asr.id });
+        progress(id, { stage: "transcribe", message: "Transcribing" });
+        await delay(900);
+        if (state.cancelled.has(id)) fail("CANCELLED", "Cancelled");
+        return { text: `The birch canoe slid on the smooth planks. Glue the sheet to the dark blue background. ${MOCK}`, language: "en", language_probability: 0.99, segments: [], confidence: 0.91, model_id: state.settings.asr_model, device: "cpu", duration_s: 12, elapsed_s: 0.9 };
+      }
+      case "record.start": {
+        const sessionId = mockId("rec");
+        const started = Date.now();
+        const timer = window.setInterval(() => {
+          const t = (Date.now() - started) / 1000;
+          const rms = -24 + 10 * Math.sin(t * 5) * Math.random();
+          event("record.level", { session_id: sessionId, peak_dbfs: rms + 8, rms_dbfs: rms, clipped: false, elapsed_s: t, bytes_written: Math.round(t * 144000) });
+        }, 100);
+        state.recording = { sessionId, started, timer };
+        return { session_id: sessionId, path: "/mock/rec.wav", negotiated: { sample_rate: 48000, channels: 1, dtype: "float32", subtype: "PCM_24", hostapi: "mock", device_name: `Mock microphone ${MOCK}`, latency_s: 0.01 }, notes: [], monitoring: false };
+      }
+      case "record.stop":
+      case "record.discard": {
+        const r = state.recording;
+        if (r) window.clearInterval(r.timer);
+        state.recording = null;
+        if (method === "record.discard" || !r) return { ok: true };
+        const seconds = Math.max(0.5, (Date.now() - r.started) / 1000);
+        const a: MockAsset = { id: mockId("asset"), path: mockWav(seconds, 5), seconds };
+        state.assets.set(a.id, a);
+        return { session_id: r.sessionId, path: a.path, working_path: a.path, asset_id: a.id, duration_s: seconds, stats: null, negotiated: { sample_rate: 48000, channels: 1, dtype: "float32", subtype: "PCM_24", hostapi: "mock", device_name: "mock", latency_s: 0.01 }, notes: [] };
+      }
+
+      // ---------------------------------------------------------------- speak / tts
+      case "speak.session":
+        return { project_id: state.speak.projectId, text: state.speak.text, script_version: 1, voice_id: state.speak.voiceId, engine_id: "qwen3-tts-base", language: "en", settings: state.speak.settings, history: state.speak.history.slice(0, Number(params.history_limit ?? 10)) };
+      case "speak.history":
+        return { history: state.speak.history.slice(0, Number(params.limit ?? 30)) };
+      case "speak.forget":
+        state.speak.history = state.speak.history.filter((h) => h.id !== params.id);
+        return { ok: true };
+      case "projects.save_script":
+        if (params.id === state.speak.projectId) state.speak.text = String(params.text);
+        return { script_version: 2, changed: true };
+      case "projects.update": {
+        if (params.id === state.speak.projectId) {
+          const patch = params.patch as { voice_id?: string; settings?: Record<string, unknown> };
+          if (patch.voice_id !== undefined) state.speak.voiceId = patch.voice_id;
+          if (patch.settings) for (const [k, v] of Object.entries(patch.settings)) state.speak.settings[k] = v && typeof v === "object" && !Array.isArray(v) ? { ...(state.speak.settings[k] as object), ...(v as object) } : v;
+        }
+        return { id: params.id };
+      }
+      case "tts.plan": {
+        const text = String(params.script_text ?? "");
+        state.speak.text = text;
+        const sentences = text.split(/(?<=[.!?])\s+/).map((x) => x.trim()).filter(Boolean);
+        return { segments: sentences.map((t, i) => ({ index: i, paragraph: 0, text: t, normalized_text: t, substitutions: [], char_count: t.length })), engine_id: "qwen3-tts-base", warnings: [] };
+      }
+      case "tts.generate": {
+        const tts = state.models.find((m) => m.kind === "tts" && m.engine_id === "qwen3-tts-base");
+        if (tts?.state !== "installed") fail("MODEL_MISSING", "The model qwen3-tts-12hz-1.7b-base is not installed", { model_id: tts?.id });
+        const n = Math.max(1, state.speak.text.split(/(?<=[.!?])\s+/).filter((x) => x.trim()).length);
+        const eng = state.engines[0]!;
+        if (eng.state !== "loaded") {
+          progress(id, { stage: "engine", message: "Loading weights" });
+          await delay(1200);
+          eng.state = "loaded";
+        }
+        const done: unknown[] = [];
+        for (let i = 1; i <= n; i++) {
+          if (state.cancelled.has(id)) fail("CANCELLED", "Cancelled", { completed: done });
+          progress(id, { stage: "generate", message: `Generating segment ${i} of ${n}`, current: i, total: n, detail: { segment_index: i - 1 } });
+          await delay(700);
+          done.push({ segment_index: i - 1, take_id: mockId("take"), path: "", duration_s: 2 });
+        }
+        return { takes: done, skipped: [], elapsed_s: n * 0.7 };
+      }
+      case "tts.assemble":
+        await delay(250);
+        return { master_path: "/mock/master.wav", duration_s: 3, sample_rate: 24000, segments_used: 1 };
+      case "speak.remember": {
+        const text = String(params.text);
+        const seconds = Math.max(1.5, Math.min(60, text.length / 15));
+        const v = state.voices.find((x) => x.id === params.voice_id);
+        const entry: SpeechEntry = { id: mockId("speech"), project_id: state.speak.projectId, text, voice_id: v?.id ?? null, voice_name: v?.name ?? null, engine_id: "qwen3-tts-base", path: mockWav(seconds, state.speak.history.length + 2), duration_s: seconds, sample_rate: 8000, created_at: new Date().toISOString(), exists: true };
+        state.speak.history.unshift(entry);
+        return { ...entry, pruned: { takes_removed: 0, segments_removed: 0, history_removed: 0 } };
+      }
+      case "engine.prepare_reference":
+        await delay(300);
+        return { prompt_cache_id: "mock", path: "/mock", engine_id: "qwen3-tts-base", model_revision: "mockrev", fingerprint: "mock" };
+      case "export.render":
+        await delay(400);
+        return { path: String(params.out_path ?? "/mock/data/exports/speech.wav"), size_bytes: 1000, probe: {} };
       case "library.folders":
         return { folders: [] };
       case "library.tags":
         return { tags: [] };
       case "export.loudness_targets":
-        return { targets: [] };
+        return { targets: [{ id: "podcast-16", label: "Podcast (-16 LUFS, -1 dBTP)", integrated_lufs: -16, true_peak_dbtp: -1, lra: 11, description: "mock" }, { id: "streaming-14", label: "Streaming (-14 LUFS, -1 dBTP)", integrated_lufs: -14, true_peak_dbtp: -1, lra: 11, description: "mock" }] };
+      case "record.scripts":
+        return { scripts: [{ id: "rainbow", title: "The Rainbow Passage", style: "neutral", text: "When the sunlight strikes raindrops in the air, they act as a prism and form a rainbow. The rainbow is a division of white light into many beautiful colors. These take the shape of a long round arch, with its path high above, and its two ends apparently beyond the horizon.", approx_seconds: 25 }, { id: "news", title: "News read", style: "news", text: "Good evening. Here are tonight's top stories: local volunteers opened a new community garden, and forecasters expect clear skies for the weekend.", approx_seconds: 15 }] };
       default:
         fail("NOT_FOUND", `Method ${method} is not implemented by the preview mock`, { method }, false);
     }
@@ -375,6 +631,7 @@ export function createMockTransport(): Transport {
           return (await dispatch(id, String(args.method), (args.params as Record<string, unknown>) ?? {})) as T;
         }
         case "worker_cancel":
+          state.cancelled.add(String(args.id ?? ""));
           return undefined as T;
         case "worker_status":
           return { ...state.status } as T;
@@ -412,9 +669,10 @@ export function createMockTransport(): Transport {
           return 0 as T;
         }
         case "pick_audio_files":
-          return [] as T;
-        case "pick_text_file":
+          return ["/home/you/Recordings/interview.wav"] as T;
         case "pick_save_path":
+          return `/home/you/${String(args.defaultName ?? "speech")}.${String(args.ext ?? "wav")}` as T;
+        case "pick_text_file":
         case "pick_archive_file":
         case "pick_directory":
           console.info(`[PREVIEW MOCK] ${cmd}: native dialogs are unavailable in the browser`);

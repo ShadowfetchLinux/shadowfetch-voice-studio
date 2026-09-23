@@ -27,7 +27,8 @@ export interface Player {
   error: string | null;
   loop: boolean;
   restrictToSelection: boolean;
-  play: () => Promise<void>;
+  /** `silent`: a refused play (e.g. an autoplay policy) leaves the player paused without showing an error. */
+  play: (opts?: { silent?: boolean }) => Promise<void>;
   pause: () => void;
   toggle: () => Promise<void>;
   /** Seek in seconds (clamped). */
@@ -190,7 +191,7 @@ export function usePlayer(opts: UsePlayerOptions = {}): Player {
     setCurrentTime(v);
   }, []);
 
-  const play = useCallback(async () => {
+  const play = useCallback(async (opts?: { silent?: boolean }) => {
     const a = audioRef.current;
     if (!a) return;
     const sel = selRef.current;
@@ -200,7 +201,7 @@ export function usePlayer(opts: UsePlayerOptions = {}): Player {
     try {
       await a.play();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Playback failed");
+      if (!opts?.silent) setError(err instanceof Error ? err.message : "Playback failed");
     }
   }, []);
 

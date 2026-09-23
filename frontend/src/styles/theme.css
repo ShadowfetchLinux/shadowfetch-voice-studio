@@ -9,13 +9,6 @@
   --font-sans: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Menlo, monospace;
 
-  --color-sidebar: #1f2327;
-  --color-sidebar-hover: #2a2f35;
-  --color-sidebar-active: #343a41;
-  --color-sidebar-text: #d7dbe0;
-  --color-sidebar-muted: #9aa3ad;
-  --color-sidebar-border: #2e343a;
-
   --color-work: #f7f5f1;
   --color-panel: #ffffff;
   --color-panel-alt: #faf9f6;
@@ -28,7 +21,17 @@
   --color-accent: #2f6fe4;
   --color-accent-hover: #2559c4;
   --color-accent-soft: #e8f0fd;
+  --color-accent-soft-hover: #dbe7fc;
   --color-accent-text: #ffffff;
+
+  /* hover wash / neutral track (progress bars, pills) */
+  --color-hover: rgb(31 35 40 / 0.05);
+  --color-track: rgb(31 35 40 / 0.08);
+
+  /* waveform canvas (read by Waveform.tsx) */
+  --color-wave-ruler: #f1eee8;
+  --color-wave-dim: #b8c4dd;
+  --color-wave-selection: rgba(47, 111, 228, 0.12);
 
   --color-success: #1a7f4b;
   --color-success-soft: #e3f5ea;
@@ -45,6 +48,48 @@
   --shadow-pop: 0 8px 24px rgb(31 35 40 / 0.14), 0 2px 6px rgb(31 35 40 / 0.08);
 
   --control-height: 40px;
+}
+
+/*
+ * Dark palette, following the desktop's light/dark preference (GNOME, COSMIC and KDE all expose it to WebKitGTK).
+ * Same token names, so every component switches without per-component rules.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-work: #16181b;
+    --color-panel: #1e2125;
+    --color-panel-alt: #23272c;
+    --color-border: #30353b;
+    --color-border-strong: #454c54;
+
+    --color-text: #e7e9ec;
+    --color-muted: #a2a9b3; /* ≥ 4.5:1 on panel and work */
+
+    --color-accent: #5b8def;
+    --color-accent-hover: #77a2f3;
+    --color-accent-soft: #1d2b43;
+    --color-accent-soft-hover: #243556;
+    --color-accent-text: #ffffff;
+
+    --color-success: #46b97d;
+    --color-success-soft: #173326;
+    --color-warn: #e3a54a;
+    --color-warn-soft: #362914;
+    --color-danger: #f06464;
+    --color-danger-hover: #f37e7e;
+    --color-danger-soft: #3b1d1f;
+
+    --color-hover: rgb(255 255 255 / 0.06);
+    --color-track: rgb(255 255 255 / 0.1);
+
+    --color-wave-ruler: #2a2e34;
+    --color-wave-dim: #3b4a66;
+    --color-wave-selection: rgba(91, 141, 239, 0.18);
+
+    --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px rgb(0 0 0 / 0.25);
+    --shadow-pop: 0 10px 28px rgb(0 0 0 / 0.5), 0 2px 6px rgb(0 0 0 / 0.35);
+    color-scheme: dark;
+  }
 }
 
 @layer base {
@@ -161,6 +206,102 @@
   }
   .field-input[aria-invalid="true"] {
     border-color: var(--color-danger);
+  }
+
+  /* Small uppercase label above a control ("Voice"). */
+  .eyebrow {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
+  /* The Speak editor: a writing surface, not a form field. */
+  .speak-editor {
+    width: 100%;
+    flex: 1;
+    min-height: 220px;
+    resize: none;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--color-text);
+    font-size: 19px;
+    line-height: 1.65;
+    letter-spacing: -0.003em;
+    padding: 28px 32px 20px;
+    caret-color: var(--color-accent);
+  }
+  .speak-editor::placeholder {
+    color: var(--color-muted);
+    opacity: 0.75;
+  }
+  @media (max-width: 720px) {
+    .speak-editor {
+      font-size: 17px;
+      padding: 20px;
+    }
+  }
+  @media (max-height: 700px) {
+    .speak-editor {
+      min-height: 110px;
+      padding-top: 18px;
+    }
+  }
+
+  /* Player scrubber: a thin filled track (--pct set inline) with a round thumb. */
+  .sfvs-scrubber {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 20px;
+    background: transparent;
+    cursor: pointer;
+  }
+  .sfvs-scrubber:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+  .sfvs-scrubber::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(to right, var(--color-accent) var(--pct, 0%), var(--color-track) var(--pct, 0%));
+  }
+  .sfvs-scrubber::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border-radius: 999px;
+    background: var(--color-accent);
+    box-shadow: 0 0 0 3px var(--color-panel);
+  }
+  .sfvs-scrubber::-moz-range-track {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--color-track);
+  }
+  .sfvs-scrubber::-moz-range-progress {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--color-accent);
+  }
+  .sfvs-scrubber::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--color-accent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

@@ -54,7 +54,7 @@ from the worker unchanged.
 | `app_paths` | → `{data, config, cache, resource, runtime_root}` |
 | `runtime_status` | → `{python, pythonpath, mode, found, python_found, package_found, source, runtime_root, bootstrap_script, bootstrap_script_found, bootstrap_running, standalone}` |
 | `runtime_bootstrap` | `{withChatterbox?, autoInstallUv?}` → exit code; streams `runtime://log` `{stream, line}`; `BUSY` while running |
-| `pick_audio_files` | → `string[]` (wav/mp3/flac, multi-select) |
+| `pick_audio_files` | → `string[]` (wav, mp3, flac, ogg/oga/opus, m4a/aac, aiff/aif, webm, wma; multi-select) |
 | `pick_text_file` | → `string \| null`; only these paths may be read with `read_text_file` |
 | `pick_save_path` | `{defaultName, ext}` → `string \| null` (extension enforced) |
 | `pick_directory` | → `string \| null` |
@@ -91,7 +91,7 @@ libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev patchelf pkg-config bu
 ```
 cd src-tauri && cargo check                    # needs the -dev packages above
 npx @tauri-apps/cli@latest dev                 # runs `npm run dev` in ../frontend first
-npx @tauri-apps/cli@latest build --bundles deb,appimage
+npx @tauri-apps/cli@latest build --bundles deb   # supported package; add ,appimage for a best-effort AppImage
 cargo test --manifest-path tests/supervisor-harness/Cargo.toml --lib --tests   # no GTK needed
 ```
 

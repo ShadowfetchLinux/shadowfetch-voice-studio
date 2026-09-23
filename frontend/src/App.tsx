@@ -4,25 +4,29 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { ToastProvider } from "@/components/ui/Toast";
 import { Spinner } from "@/components/ui/Spinner";
-import { Sidebar } from "@/components/shell/Sidebar";
 import { ErrorBoundary } from "@/components/shell/ErrorBoundary";
-import { Header, useGpuPolling } from "@/components/shell/Header";
-import { ShortcutsHelp, useGlobalShortcuts } from "@/components/shell/ShortcutsHelp";
+import { TopBar, WorkerBanner } from "@/components/shell/TopBar";
 import { useAppStore, type Page } from "@/store/appStore";
-import HomePage from "@/pages/HomePage";
+import { useGpuPolling } from "@/store/useGpuPolling";
+import { useVoicesStore } from "@/store/voicesStore";
+import { useSpeakStore } from "@/features/speak/speakStore";
+import { ModelSetupDialog } from "@/features/setup/ModelSetupDialog";
+import { CloneVoiceDialog } from "@/features/voices/clone/CloneVoiceDialog";
+import SpeakPage from "@/pages/SpeakPage";
 import VoicesPage from "@/pages/VoicesPage";
-import CreatePage from "@/pages/CreatePage";
-import LibraryPage from "@/pages/LibraryPage";
 import SettingsPage from "@/pages/SettingsPage";
 import SetupPage from "@/pages/SetupPage";
+import LibraryPage from "@/pages/LibraryPage";
+import CreatePage from "@/pages/CreatePage";
 
-const PAGES: Record<Page, () => ReactNode> = {
-  home: () => <HomePage />,
-  voices: () => <VoicesPage />,
-  create: () => <CreatePage />,
-  library: () => <LibraryPage />,
-  settings: () => <SettingsPage />,
-  setup: () => <SetupPage />,
+/** Pages that fill the window themselves (Speak's editor grows with it); the rest scroll inside a padded column. */
+const PAGES: Record<Page, { render: () => ReactNode; bare?: boolean }> = {
+  speak: { render: () => <SpeakPage />, bare: true },
+  voices: { render: () => <VoicesPage />, bare: true },
+  settings: { render: () => <SettingsPage /> },
+  setup: { render: () => <SetupPage /> },
+  projects: { render: () => <LibraryPage /> },
+  editor: { render: () => <CreatePage /> },
 };
 
 /** Wires store ↔ shell events once for the app lifetime. */
@@ -38,7 +42,15 @@ function useShellSubscriptions() {
     const offStatus = api.events.onWorkerStatus((s) => {
       const prev = useAppStore.getState().workerStatus;
       setWorkerStatus(s);
-      if (s.running && !prev?.running) void boot();
+      if (s.running && !prev?.running) {
+        void boot();
+        // after a restart: refresh the voices, and load Speak again if its first load failed while the worker was down
+        if (prev) {
+          void useVoicesStore.getState().load();
+          const sp = useSpeakStore.getState();
+          if (sp.loadError || (sp.ready && !sp.projectId)) void sp.init();
+        }
+      }
     });
     void boot();
     const offEngine = api.events.on("engine.state", applyEngineState);
@@ -53,59 +65,65 @@ function useShellSubscriptions() {
 
 export default function App() {
   useShellSubscriptions();
-  useGpuPolling();
-  useGlobalShortcuts();
   const page = useAppStore((s) => s.page);
   const booted = useAppStore((s) => s.booted);
   const bootError = useAppStore((s) => s.bootError);
   const boot = useAppStore((s) => s.boot);
   const params = useAppStore((s) => s.params);
   const workerStarting = useAppStore((s) => s.workerStatus != null && !s.workerStatus.running);
+  useGpuPolling(page === "settings" || page === "editor" || page === "setup");
 
   // Fresh page → start at the top (a page that targets a section scrolls itself).
   useEffect(() => {
     if (!params.section) document.getElementById("page")?.scrollTo({ top: 0 });
   }, [page, params]);
 
+  const spec = PAGES[page] ?? PAGES.speak;
+
   return (
-    <div className="flex h-full min-h-0 w-full overflow-hidden bg-work text-text">
-      <Sidebar />
-      <div className="flex flex-col flex-1 min-w-0 min-h-0">
-        <Header />
-        <main className="flex-1 min-h-0 overflow-y-auto" id="page">
-          {!booted ? (
-            <div className="flex items-center justify-center h-full text-muted gap-3" role="status">
-              <Spinner size={20} /> {workerStarting ? "Starting local worker…" : "Connecting to the worker…"}
+    <div className="flex flex-col h-full min-h-0 w-full overflow-hidden bg-work text-text">
+      <TopBar />
+      <WorkerBanner />
+      <main className="flex-1 min-h-0 overflow-y-auto" id="page">
+        {!booted ? (
+          <div className="flex items-center justify-center h-full text-muted gap-3" role="status">
+            <Spinner size={20} /> {workerStarting ? "Starting Voice Studio…" : "Connecting…"}
+          </div>
+        ) : bootError ? (
+          <div className="max-w-[560px] mx-auto mt-16 panel p-6 flex flex-col gap-4">
+            <div className="flex items-center gap-3 text-danger">
+              <AlertTriangle className="size-6" />
+              <h2>Voice Studio couldn't start its engine</h2>
             </div>
-          ) : bootError ? (
-            <div className="max-w-[560px] mx-auto mt-16 panel p-6 flex flex-col gap-4">
-              <div className="flex items-center gap-3 text-danger">
-                <AlertTriangle className="size-6" />
-                <h2>The worker did not respond</h2>
-              </div>
-              <p className="text-sm text-muted break-words">{bootError}</p>
-              <div className="flex gap-2 flex-wrap">
-                <Button variant="primary" onClick={() => void boot()}>
-                  Try again
-                </Button>
-                <Button onClick={() => void api.shell.workerRestart().then(() => boot())}>Restart worker</Button>
-                <Button
-                  onClick={() => {
-                    useAppStore.setState({ bootError: null, page: "setup", booted: true });
-                  }}
-                >
-                  Open setup
-                </Button>
-              </div>
+            <p className="text-sm text-muted break-words">{bootError}</p>
+            <div className="flex gap-2 flex-wrap">
+              <Button variant="primary" onClick={() => void boot()}>
+                Try again
+              </Button>
+              <Button onClick={() => void api.shell.workerRestart().then(() => boot())}>Restart engine</Button>
+              <Button
+                onClick={() => {
+                  useAppStore.setState({ bootError: null, page: "setup", booted: true });
+                }}
+              >
+                Open system check
+              </Button>
             </div>
-          ) : (
-            <div className="mx-auto w-full max-w-[1400px] px-6 py-6 min-[1600px]:px-10">
-              <ErrorBoundary resetKey={page}>{PAGES[page]()}</ErrorBoundary>
-            </div>
-          )}
-        </main>
-      </div>
-      <ShortcutsHelp />
+          </div>
+        ) : spec.bare ? (
+          <ErrorBoundary resetKey={page}>{spec.render()}</ErrorBoundary>
+        ) : (
+          <div className="mx-auto w-full max-w-[1200px] px-4 sm:px-6 py-6">
+            <ErrorBoundary resetKey={page}>{spec.render()}</ErrorBoundary>
+          </div>
+        )}
+      </main>
+      {booted && !bootError && (
+        <>
+          <CloneVoiceDialog />
+          <ModelSetupDialog />
+        </>
+      )}
       <ToastProvider />
     </div>
   );

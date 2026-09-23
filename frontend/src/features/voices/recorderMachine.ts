@@ -199,20 +199,3 @@ export function recorderReducer(s: RecorderState, e: RecorderEvent): RecorderSta
   }
 }
 
-/** Human label + tone for the state pill. */
-export function describePhase(phase: RecorderPhase): { label: string; tone: "neutral" | "success" | "warn" | "danger" | "accent"; pulse: boolean } {
-  switch (phase) {
-    case "idle":
-      return { label: "Ready", tone: "neutral", pulse: false };
-    case "starting":
-      return { label: "Opening device", tone: "warn", pulse: true };
-    case "recording":
-      return { label: "Recording", tone: "danger", pulse: true };
-    case "paused":
-      return { label: "Paused", tone: "warn", pulse: false };
-    case "stopping":
-      return { label: "Finishing file", tone: "warn", pulse: true };
-    case "error":
-      return { label: "Error", tone: "danger", pulse: false };
-  }
-}

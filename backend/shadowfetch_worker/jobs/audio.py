@@ -244,6 +244,42 @@ def audio_prepare_reference(ctx: Ctx, p: PrepareReferenceParams) -> dict[str, An
             "end_s": p.end_s, "processing": processing, "fingerprint": fingerprint, **res}
 
 
+# ---------------------------------------------------------------- automatic reference selection
+class SuggestReferenceParams(BaseModel):
+    path: str | None = None
+    asset_id: str | None = None
+    engine_id: str | None = None
+
+
+@method("audio.suggest_reference", params=SuggestReferenceParams)
+def audio_suggest_reference(ctx: Ctx, p: SuggestReferenceParams) -> dict[str, Any]:
+    """Recommend a clean reference range (whole phrases, mostly speech, inside the engine's recommended length) and
+    report plain problems (quiet, clipped, noisy, too little speech). Reads only; nothing is written or modified."""
+    st = ctx.server.state
+    if p.asset_id:
+        asset = st["db"].require("assets", p.asset_id)
+        src = Path(asset["working_path"] or asset["original_path"] or "")
+        if not src.is_file():
+            raise WorkerError(NOT_FOUND, "The audio file for this recording is missing on disk.", {"asset_id": p.asset_id}, False)
+    elif p.path:
+        src = user_file(p.path)
+    else:
+        raise WorkerError(INVALID_PARAMS, "Pass asset_id or path.")
+    engine_id = p.engine_id or st["settings"].value.default_engine
+    min_s, max_s, rec = 3.0, 30.0, (8.0, 15.0)
+    engines = st.get("engines")
+    if engines is not None:
+        try:
+            req = engines.capabilities(engine_id).reference
+            if req.max_seconds > 0 and req.recommended_seconds[1] > 0:
+                min_s, max_s, rec = float(req.min_seconds), float(req.max_seconds), tuple(req.recommended_seconds)
+        except WorkerError:
+            pass
+    ctx.progress("analyze", "Looking for the clearest part of the recording")
+    res = analysis.suggest_reference(src, min_s, max_s, rec)
+    return {**res, "engine_id": engine_id, "path": str(src), "min_seconds": min_s, "max_seconds": max_s}
+
+
 # ---------------------------------------------------------------- preview processing
 class PreviewParams(BaseModel):
     path: str

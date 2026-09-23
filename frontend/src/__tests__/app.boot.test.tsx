@@ -37,7 +37,7 @@ describe("app boot waits for the worker", () => {
     mod.api.system.diagnostics.mockResolvedValue(null);
     mod.api.engine.list.mockResolvedValue({ engines: [] });
     mod.api.models.list.mockResolvedValue({ models: [] });
-    useAppStore.setState({ page: "home", params: {}, booted: false, bootError: null, settings: null, workerStatus: null, diagnostics: null, engines: [], models: [] });
+    useAppStore.setState({ page: "speak", params: {}, booted: false, bootError: null, settings: null, workerStatus: null, diagnostics: null, engines: [], models: [] });
   });
 
   it("boots at once when the supervisor already reports the worker running", async () => {
@@ -57,7 +57,7 @@ describe("app boot waits for the worker", () => {
     // subscribed before the first boot, and the first boot only asked the shell for the status
     expect(statusHandlers()).toHaveLength(1);
     await waitFor(() => expect(mod.api.shell.workerStatus).toHaveBeenCalled());
-    expect(await screen.findByText("Starting local worker…")).toBeInTheDocument();
+    expect(await screen.findByText("Starting Voice Studio…")).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 20));
     expect(mod.api.system.settingsGet).not.toHaveBeenCalled();
     expect(mod.api.engine.list).not.toHaveBeenCalled();
@@ -70,7 +70,7 @@ describe("app boot waits for the worker", () => {
     await waitFor(() => expect(useAppStore.getState().booted).toBe(true));
     expect(mod.api.system.settingsGet).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(mod.api.engine.list).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText("Starting local worker…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Starting Voice Studio…")).not.toBeInTheDocument();
   });
 
   it("re-runs the boot when the worker comes back after a restart", async () => {
@@ -108,14 +108,29 @@ describe("app boot waits for the worker", () => {
     expect(useAppStore.getState().workerStatus?.running).toBe(true);
   });
 
+  it("opens directly on Speak — also on a first run — with the cursor in the editor", async () => {
+    const { mod } = await h;
+    mod.api.shell.workerStatus.mockResolvedValue(up);
+    mod.api.system.settingsGet.mockResolvedValue({ ...settings, onboarding_done: false });
+    render(<App />);
+    const editor = await screen.findByRole("textbox", { name: "Text to speak" });
+    expect(useAppStore.getState().page).toBe("speak");
+    await waitFor(() => expect(editor).toHaveFocus());
+    // only two destinations in the main navigation, plus the Settings gear
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(Array.from(nav.querySelectorAll("button")).map((b) => b.textContent)).toEqual(["Speak", "Voices"]);
+    expect(screen.getByRole("button", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByText("Runs locally on your computer.")).toBeInTheDocument();
+  });
+
   it("shows the supervisor's error with a restart action when it gave up", async () => {
     const { mod } = await h;
     mod.api.shell.workerStatus.mockResolvedValue({ running: false, restarts: 3, last_error: "python not found", stopped: true });
     mod.api.shell.runtimeStatus.mockResolvedValue({ found: true, python_found: true, package_found: true });
     render(<App />);
     expect(await screen.findByText("python not found")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Restart worker" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open setup" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restart engine" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open system check" })).toBeInTheDocument();
     expect(mod.api.system.settingsGet).not.toHaveBeenCalled();
   });
 

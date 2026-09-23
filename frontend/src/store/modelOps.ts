@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { api, type RequestPromise } from "@/lib/api";
 import type { ModelVerifyResult } from "@/lib/protocol";
+import { WorkerError } from "@/lib/protocol";
 import { handleError, toast, useAppStore } from "./appStore";
 
 export interface DownloadJob {
@@ -18,7 +19,10 @@ export interface DownloadJob {
 interface ModelOpsState {
   downloads: Record<string, DownloadJob>;
   busy: Record<string, "verify" | "remove" | "use_existing" | "load" | "unload" | undefined>;
-  startDownload: (model_id: string) => Promise<boolean>;
+  /** Last download failure per model (cleared when a new download starts); CANCELLED is not recorded. */
+  errors: Record<string, WorkerError | undefined>;
+  /** `quiet`: no toasts — the caller (the setup dialog) shows progress and errors itself. */
+  startDownload: (model_id: string, opts?: { quiet?: boolean }) => Promise<boolean>;
   cancelDownload: (model_id: string) => Promise<void>;
   verify: (model_id: string) => Promise<ModelVerifyResult | null>;
   useExistingDir: (model_id: string) => Promise<boolean>;
@@ -28,56 +32,21 @@ interface ModelOpsState {
 }
 
 const handles = new Map<string, RequestPromise<unknown>>();
+/** The running `startDownload` per model, so a second caller (the setup dialog, a Settings row) waits for the same one. */
+const inflight = new Map<string, Promise<boolean>>();
 
 /** Long-running model/engine operations that must survive page navigation. */
-export const useModelOps = create<ModelOpsState>((set, get) => ({
+export const useModelOps = create<ModelOpsState>((set) => ({
   downloads: {},
   busy: {},
+  errors: {},
 
-  async startDownload(model_id) {
-    if (get().downloads[model_id]) return false;
-    const req = api.models.download(model_id, {
-      onProgress: (p) =>
-        set((s) => {
-          const job = s.downloads[model_id];
-          if (!job) return s;
-          return {
-            downloads: {
-              ...s.downloads,
-              [model_id]: {
-                ...job,
-                stage: p.stage,
-                message: p.message,
-                bytes_done: p.detail?.bytes_done ?? (p.stage === "download" ? (p.current ?? job.bytes_done) : job.bytes_done),
-                bytes_total: p.detail?.bytes_total ?? (p.stage === "download" ? (p.total ?? job.bytes_total) : job.bytes_total),
-                current: p.current ?? null,
-                total: p.total ?? null,
-              },
-            },
-          };
-        }),
-    });
-    handles.set(model_id, req);
-    set((s) => ({
-      downloads: { ...s.downloads, [model_id]: { model_id, request_id: req.id, stage: "queued", message: "Starting download", bytes_done: null, bytes_total: null, current: null, total: null } },
-    }));
-    try {
-      const r = await req;
-      toast.success("Model installed", `${r.model_id} (${r.revision.slice(0, 12)})`);
-      return true;
-    } catch (err) {
-      const we = handleError(err, "Model download failed");
-      if (we.cancelled) toast.info("Download cancelled", model_id);
-      return false;
-    } finally {
-      handles.delete(model_id);
-      set((s) => {
-        const { [model_id]: _drop, ...rest } = s.downloads;
-        return { downloads: rest };
-      });
-      void useAppStore.getState().loadModels();
-      void useAppStore.getState().loadEngines();
-    }
+  startDownload(model_id, opts) {
+    const running = inflight.get(model_id);
+    if (running) return running;
+    const p = runDownload(model_id, opts).finally(() => inflight.delete(model_id));
+    inflight.set(model_id, p);
+    return p;
   },
 
   async cancelDownload(model_id) {
@@ -88,6 +57,7 @@ export const useModelOps = create<ModelOpsState>((set, get) => ({
     }
     await handles.get(model_id)?.cancel();
   },
+
 
   async verify(model_id) {
     set((s) => ({ busy: { ...s.busy, [model_id]: "verify" } }));
@@ -184,3 +154,53 @@ export const useModelOps = create<ModelOpsState>((set, get) => ({
     }
   },
 }));
+
+
+/** One download through the worker (progress in measured bytes, verification, resumable); errors are kept per model. */
+async function runDownload(model_id: string, opts?: { quiet?: boolean }): Promise<boolean> {
+  const set = useModelOps.setState;
+  set((s) => ({ errors: { ...s.errors, [model_id]: undefined } }));
+  const req = api.models.download(model_id, {
+    onProgress: (p) =>
+      set((s) => {
+        const job = s.downloads[model_id];
+        if (!job) return s;
+        return {
+          downloads: {
+            ...s.downloads,
+            [model_id]: {
+              ...job,
+              stage: p.stage,
+              message: p.message,
+              bytes_done: p.detail?.bytes_done ?? (p.stage === "download" ? (p.current ?? job.bytes_done) : job.bytes_done),
+              bytes_total: p.detail?.bytes_total ?? (p.stage === "download" ? (p.total ?? job.bytes_total) : job.bytes_total),
+              current: p.current ?? null,
+              total: p.total ?? null,
+            },
+          },
+        };
+      }),
+  });
+  handles.set(model_id, req);
+  set((s) => ({
+    downloads: { ...s.downloads, [model_id]: { model_id, request_id: req.id, stage: "queued", message: "Starting download", bytes_done: null, bytes_total: null, current: null, total: null } },
+  }));
+  try {
+    const r = await req;
+    if (!opts?.quiet) toast.success("Model installed", `${r.model_id} (${r.revision.slice(0, 12)})`);
+    return true;
+  } catch (err) {
+    const we = opts?.quiet ? WorkerError.from(err) : handleError(err, "Model download failed");
+    if (!we.cancelled) set((s) => ({ errors: { ...s.errors, [model_id]: we } }));
+    else if (!opts?.quiet) toast.info("Download cancelled", model_id);
+    return false;
+  } finally {
+    handles.delete(model_id);
+    set((s) => {
+      const { [model_id]: _drop, ...rest } = s.downloads;
+      return { downloads: rest };
+    });
+    void useAppStore.getState().loadModels();
+    void useAppStore.getState().loadEngines();
+  }
+}

@@ -10,7 +10,9 @@ import { StatusPill, type PillTone } from "@/components/ui/Feedback";
 import { Spinner } from "@/components/ui/Spinner";
 import { AudioDevices } from "@/components/settings/AudioDevices";
 import { ModelRow } from "@/components/model-manager/ModelRow";
-import { handleError, newVoiceParams, toast, useAppStore } from "@/store/appStore";
+import { handleError, toast, useAppStore } from "@/store/appStore";
+import { useCloneStore } from "@/features/voices/cloneStore";
+import { useVoicesStore } from "@/store/voicesStore";
 
 type CheckState = "ok" | "warn" | "missing" | "checking";
 
@@ -27,7 +29,7 @@ function Step({ n, title, state, children, description }: { n: number; title: st
     <Card
       title={
         <span className="inline-flex items-center gap-3">
-          <span className={cx("inline-flex items-center justify-center size-7 rounded-full text-[13px] font-semibold", state === "ok" ? "bg-success text-white" : "bg-black/6 text-muted")}>
+          <span className={cx("inline-flex items-center justify-center size-7 rounded-full text-[13px] font-semibold", state === "ok" ? "bg-success text-white" : "bg-track text-muted")}>
             {state === "ok" ? <Check className="size-4" /> : n}
           </span>
           {title}
@@ -271,8 +273,10 @@ export default function SetupPage() {
     const s = await saveSettings({ onboarding_done: true }, { silent: true });
     setFinishing(false);
     if (s) {
-      toast.success("Setup complete", modelsMissing ? "You can install remaining models later from Settings." : "Next: record or import a voice.");
-      navigate("voices", newVoiceParams());
+      navigate("speak");
+      const hasVoice = (await useVoicesStore.getState().load()).length > 0;
+      if (!hasVoice) useCloneStore.getState().start();
+      else toast.success("Setup complete", modelsMissing ? "The voice model will be offered when you first press Speak." : "Everything is ready.");
     }
   };
 
@@ -297,7 +301,7 @@ export default function SetupPage() {
           </p>
         ) : (
           <p className="text-sm">
-            <span className="text-danger">ffmpeg{!diagnostics.ffprobe ? " and ffprobe" : ""} not found.</span> Install with <code className="bg-black/6 px-1 rounded">sudo apt install ffmpeg</code>, then re-run the checks.
+            <span className="text-danger">ffmpeg{!diagnostics.ffprobe ? " and ffprobe" : ""} not found.</span> Install with <code className="bg-track px-1 rounded">sudo apt install ffmpeg</code>, then re-run the checks.
           </p>
         )}
       </Step>
@@ -331,11 +335,11 @@ export default function SetupPage() {
       <div className="panel flex items-center justify-between gap-4 px-5 py-4">
         <div className="text-sm">
           <p className="font-medium">{settings?.onboarding_done ? "Setup was already completed." : "Ready to make a voice?"}</p>
-          <p className="text-muted text-[13px]">{modelsMissing ? "The voice model is not installed yet; you can continue and download it later from Settings." : "You can reopen this checklist any time from Settings."}</p>
+          <p className="text-muted text-[13px]">{modelsMissing ? "The voice model is not installed yet; Voice Studio offers it when you first press Speak." : "You can reopen this check any time from Settings → Advanced → Tools."}</p>
         </div>
         <div className="flex gap-2">
           <Button variant="primary" loading={finishing} onClick={() => void finish()} disabled={!settings}>
-            {settings?.onboarding_done ? "Back to Voices" : "Start with a voice"}
+            {settings?.onboarding_done ? "Back to Speak" : "Start with a voice"}
           </Button>
         </div>
       </div>

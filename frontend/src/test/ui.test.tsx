@@ -116,6 +116,45 @@ describe("design system", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("Dialog keeps focus in a field while the owner re-renders with a new onClose (regression)", async () => {
+    const user = userEvent.setup();
+    const { useState } = await import("react");
+    function Host() {
+      const [name, setName] = useState("");
+      // an inline onClose is a new function on every render — typing must not move focus back to the first control
+      return (
+        <Dialog open onClose={() => setName("")} title="Rename" footer={<Button>Save</Button>}>
+          <input aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+        </Dialog>
+      );
+    }
+    render(<Host />);
+    const input = screen.getByRole("textbox", { name: "Name" });
+    await user.click(input);
+    await user.type(input, "Morgan");
+    expect(input).toHaveValue("Morgan");
+    expect(input).toHaveFocus();
+  });
+
+  it("only the top-most Dialog reacts to Escape", async () => {
+    const user = userEvent.setup();
+    const outer = vi.fn();
+    const inner = vi.fn();
+    render(
+      <>
+        <Dialog open onClose={outer} title="Outer">
+          <p>outer</p>
+        </Dialog>
+        <Dialog open onClose={inner} title="Inner">
+          <p>inner</p>
+        </Dialog>
+      </>,
+    );
+    await user.keyboard("{Escape}");
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(outer).not.toHaveBeenCalled();
+  });
+
   it("ConfirmDialog runs the confirm callback", async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();

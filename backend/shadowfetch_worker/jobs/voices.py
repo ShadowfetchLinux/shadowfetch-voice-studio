@@ -279,7 +279,9 @@ def delete(ctx: Ctx, p: VoiceDelete) -> dict[str, Any]:
     st = S(ctx)
     db = st["db"]
     db.require("voices", p.id)
-    used = [{"id": r["id"], "name": r["name"]} for r in db.all("SELECT id, name FROM projects WHERE voice_id = ? ORDER BY name", (p.id,))]
+    speak_id = st["settings"].value.speak_project_id if st.get("settings") is not None else None
+    used = [{"id": r["id"], "name": r["name"]} for r in db.all("SELECT id, name FROM projects WHERE voice_id = ? AND id != ? ORDER BY name",
+                                                                (p.id, speak_id or ""))]
     if used and not p.force:
         raise WorkerError(INVALID_PARAMS, f"This voice is used by {len(used)} project(s). Pass force:true to delete it anyway; "
                           "those projects keep their generated takes but lose their voice link.", {"used_by_projects": used})

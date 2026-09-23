@@ -2,13 +2,21 @@
 
 <img src="src-tauri/icons/128x128.png" alt="Shadowfetch Voice Studio icon" width="96" height="96">
 
-A private, local-only voice cloning studio for Linux. Record or import a clean reference clip, review the
-waveform and transcript, save a reusable voice, then turn a script into speech — entirely on your own machine.
+**Notepad, except the text can speak in any voice you have cloned.**
 
-- **Engines:** Qwen3-TTS 1.7B Base (primary, reference-audio cloning) and optional Chatterbox-Turbo.
+1. **Clone a voice** — record 20–30 seconds with your microphone, or pick an audio file.
+2. **Type** what you want it to say.
+3. **Press Speak** (or Ctrl+Enter). The speech plays as soon as it is ready; **Save Audio** keeps a copy.
+4. **Everything runs locally.** No accounts, no telemetry, no cloud. The network is only used to download the models
+   you approve, and **offline mode** blocks even that.
+
+Voices are like fonts: pick one from the voice menu, type, and speak. Everything else — choosing the clean part of a
+recording, writing down its words (local Whisper), splitting long text, loading the engine, stitching the sentences
+together — happens underneath.
+
+- **Engines:** Qwen3-TTS 1.7B Base (default, voice cloning from a short sample) and optional Chatterbox-Turbo.
 - **Transcription:** faster-whisper, CPU by default.
 - **Shell:** Tauri 2 (Rust) + React/TypeScript; Python workers for audio and inference; FFmpeg for media; SQLite for metadata.
-- **Privacy:** no telemetry and no cloud inference. The only network use is downloading model weights you approve. **Offline mode** blocks every request.
 
 Status: v0.1.1 standalone Linux desktop app. See [docs/TEST_REPORT.md](docs/TEST_REPORT.md) for what has been verified on Linux with an NVIDIA GPU.
 
@@ -21,7 +29,7 @@ Aimed at **Pop!_OS / Ubuntu 24.04-class** desktops with an NVIDIA GPU.
 | NVIDIA driver (CUDA 12.8 capable, driver ≥ 570) | Use the driver already on the system. No CUDA toolkit install is required. |
 | `ffmpeg`, `libportaudio2` | `sudo apt install ffmpeg libportaudio2` |
 | Python 3.12 for the engine runtime | Created by first-run setup or `scripts/bootstrap.sh` with `uv` (no sudo; several GB for the CUDA stack) |
-| Model weights | Downloaded in-app after size and license are shown (Qwen ≈ 4.5 GB, whisper ≈ 0.5 GB, Chatterbox ≈ 3 GB optional) |
+| Model weights | Offered in-app the first time they are needed, after size, source and license are shown (Qwen ≈ 4.5 GB, whisper ≈ 0.5 GB, Chatterbox ≈ 3 GB optional) |
 | Building from source | Rust, Node 22, and `libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf` |
 
 ## Install
@@ -62,15 +70,18 @@ scripts/build.sh             # also tries an AppImage (best-effort)
 
 ## First run
 
-Home is three steps:
+The app opens on **Speak**. The first time you clone a voice or press Speak, Voice Studio offers the local model it
+needs (name, download size, source, license) and downloads it only when you click **Download**. After that it works
+offline.
 
-1. **New voice** — record or import a short sample, trim the best 8–15 s, transcribe locally, confirm the transcript and rights, save.
-2. **Create** — write or import a script, pick the voice and engine, generate a preview or the full script, assemble.
-3. **Library** — play, export (WAV/FLAC/MP3), tag, and back up projects as portable zips.
+- **Speak** — voice menu, a large text editor (saved automatically, restored after a restart), the Speak button, the
+  result with **Save Audio**, and a short **Recent** list.
+- **Voices** — your cloned voices: play the sample, use, rename, add a recording, edit the sample, delete.
+- **Settings** (gear) — auto-play, Save Audio format, offline mode, microphone. **Advanced** holds engine selection,
+  the engine's own settings, seed, pauses, pronunciation, export details, model management, storage, the system check
+  and the multi-take project editor.
 
-Setup checks (FFmpeg, GPU, audio devices, storage, models) are available from Home if something is missing. You can start a voice first and come back to setup when generation asks for a model or runtime.
-
-Keyboard: `n` opens New voice; `1`–`5` switch Home / Voices / Create / Library / Settings.
+Keyboard: **Ctrl+Enter** speaks, **Esc** stops.
 
 ## Where data lives
 
@@ -87,7 +98,7 @@ Local storage is **not** encrypted. Treat the data directory like any other priv
 
 ## Documentation
 
-- [docs/USER_GUIDE.md](docs/USER_GUIDE.md) — New Voice, Create, Library, Settings
+- [docs/USER_GUIDE.md](docs/USER_GUIDE.md) — Speak, Clone Voice, Voices, Settings
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — process layout and data model
 - [docs/PROTOCOL.md](docs/PROTOCOL.md) — JSON-lines worker protocol
 - [docs/MODEL_LICENSES.md](docs/MODEL_LICENSES.md) — engine and model licenses
