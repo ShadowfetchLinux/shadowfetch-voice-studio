@@ -118,11 +118,13 @@ def latest_script(db: Database, project_id: str):
 def save_script(db: Database, project_id: str, text: str) -> tuple[int, bool]:
     """Store a new script version unless the text is unchanged. Keeps at most MAX_SCRIPT_VERSIONS versions.
     Returns (version, changed)."""
-    latest = latest_script(db, project_id)
-    if latest is not None and latest["text"] == text:
-        return int(latest["version"]), False
-    version = (int(latest["version"]) if latest else 0) + 1
+    # read the latest version inside the write transaction: an autosave and a tts.plan saving at the same moment
+    # must not both pick the same next version (UNIQUE(project_id, version))
     with db.tx() as c:
+        latest = c.execute("SELECT * FROM scripts WHERE project_id = ? ORDER BY version DESC LIMIT 1", (project_id,)).fetchone()
+        if latest is not None and latest["text"] == text:
+            return int(latest["version"]), False
+        version = (int(latest["version"]) if latest else 0) + 1
         c.execute("INSERT INTO scripts (id, project_id, version, text) VALUES (?, ?, ?, ?)", (new_id("scr"), project_id, version, text))
         c.execute("DELETE FROM scripts WHERE project_id = ? AND version <= ?", (project_id, version - MAX_SCRIPT_VERSIONS))
         c.execute("UPDATE projects SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?", (project_id,))

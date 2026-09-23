@@ -53,7 +53,22 @@ export function processingSteps(steps: unknown[] | null | undefined): string[] {
   return parts;
 }
 
-/** Short human summary for lists ("normalize −3 dBFS · high-pass 80 Hz"). */
-export function describeProcessing(steps: unknown[] | null | undefined): string {
-  return processingSteps(steps).join(" · ");
+/** Inverse of `toProcessingSteps`: a stored processing list → the editor's options (unknown steps are ignored). */
+export function processingFromSteps(steps: unknown[] | null | undefined): ProcessingOptions {
+  const out: ProcessingOptions = { ...defaultProcessing };
+  for (const s of steps ?? []) {
+    if (!s || typeof s !== "object") continue;
+    const step = s as Record<string, unknown>;
+    const op = String(step.op ?? step.id ?? "");
+    if (op === "trim_silence") out.trimSilence = true;
+    else if (op === "highpass") {
+      out.highpass = true;
+      if (typeof step.hz === "number") out.highpassHz = step.hz;
+    } else if (op === "normalize_peak" || op === "normalize") {
+      out.normalize = true;
+      const db = step.dbfs ?? step.normalize_peak_dbfs;
+      if (typeof db === "number") out.normalizeDbfs = db;
+    }
+  }
+  return out;
 }

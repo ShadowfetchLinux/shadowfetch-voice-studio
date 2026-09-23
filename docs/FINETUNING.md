@@ -7,7 +7,7 @@ does **not** run training and has no Train button, because full-parameter fine-t
 fit in 16 GB of VRAM (see the preflight).
 
 ## 1. Export a dataset
-Voices → select a voice → **Dataset workspace** (review transcripts, run `dataset.preflight`, then `dataset.export`). It writes:
+Voices → the voice's **⋯** menu → **Export training data…** (review transcripts, run `dataset.preflight`, then `dataset.export`). It writes:
 
 ```
 <folder>/<voice name>/
@@ -17,7 +17,7 @@ Voices → select a voice → **Dataset workspace** (review transcripts, run `da
                       reference mels, so mixed references would fail)
   manifest.json       what was included/skipped and why (unreviewed transcripts and clips outside 1–30 s are skipped)
 ```
-Add more reviewed recordings to the voice (Voices → Add reference) to grow the dataset. Single-speaker only —
+Add more reviewed recordings to the voice (Voices → **⋯** → **Add Recording**) to grow the dataset. Single-speaker only —
 that is all the official script supports.
 
 ## 2. Preflight
@@ -45,7 +45,7 @@ host RAM and is not atomic; reports of progressively faster speech per epoch and
 cloning exist.
 
 ## 4. Load the checkpoint in the app
-A fine-tuned `output_model_path` is a `custom_voice` checkpoint. In Settings → Engines & models, choose
+A fine-tuned `output_model_path` is a `custom_voice` checkpoint. In Settings → **Advanced** → **Models & engines**, choose
 **Use existing folder** for the Qwen model and point it at that directory. After **Load**, the adapter reads
 `tts_model_type` from `config.json`. Generation then calls `generate_custom_voice` with the trained speaker
 name (shown as an engine control) instead of reference-audio cloning. A leftover reference on the project is

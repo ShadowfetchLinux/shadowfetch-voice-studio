@@ -56,7 +56,7 @@ export function ProjectList({ library, selectedId, onSelect, onRestore }: Projec
           <Button size="sm" variant="ghost" icon={<Archive />} onClick={onRestore}>
             Restore backup…
           </Button>
-          <Button size="sm" variant="primary" onClick={() => navigate("create", { action: "new" })}>
+          <Button size="sm" variant="primary" onClick={() => navigate("editor", { action: "new" })}>
             New project
           </Button>
         </>
@@ -107,7 +107,7 @@ export function ProjectList({ library, selectedId, onSelect, onRestore }: Projec
         hasFilters ? (
           <EmptyState compact icon={<Search />} title="No projects match" text="Try a different search or clear the filters." action={<Button onClick={() => setFilters({ query: "", tags: [], favoritesOnly: false, archived: "active", folder: null })}>Clear filters</Button>} />
         ) : (
-          <EmptyState compact icon={<FolderOpen />} title="No projects yet" text="Create speech from a script on the Create page; projects and their exports appear here." action={<Button variant="primary" onClick={() => navigate("create", { action: "new" })}>Create speech</Button>} />
+          <EmptyState compact icon={<FolderOpen />} title="No projects yet" text="Projects hold long scripts with per-sentence takes. Create one here; its exports and backups appear in this list." action={<Button variant="primary" onClick={() => navigate("editor", { action: "new" })}>New project</Button>} />
         )
       ) : (
         <ul className="divide-y divide-border" aria-label="Projects">

@@ -10,6 +10,7 @@ import { Input, Select } from "@/components/ui/Field";
 import { Collapsible, StatusPill, type PillTone } from "@/components/ui/Feedback";
 import { Switch } from "@/components/ui/Toggle";
 import { AudioDevices } from "@/components/settings/AudioDevices";
+import { SaveAudioAdvanced, SpeakAdvanced, SpeechBasics } from "@/features/settings/SpeechSettings";
 import { ModelRow } from "@/components/model-manager/ModelRow";
 import { handleError, toast, useAppStore } from "@/store/appStore";
 import { useModelOps } from "@/store/modelOps";
@@ -152,7 +153,7 @@ function EnginesSection() {
   return (
     <Card
       id="engines"
-      title="Engines & models"
+      title="Models & engines"
       description="One engine is loaded at a time; unloading ends its process and returns VRAM."
       actions={
         <Button size="sm" variant="ghost" icon={<RefreshCw />} onClick={() => void Promise.all([loadEngines(), loadModels()])}>
@@ -262,7 +263,7 @@ function StorageSection() {
               {r.label}
               {r.note && <span className="block text-[11.5px] text-muted">{r.note}</span>}
             </span>
-            <div className="h-2.5 rounded-full bg-black/8 overflow-hidden" aria-hidden>
+            <div className="h-2.5 rounded-full bg-track overflow-hidden" aria-hidden>
               <div className="h-full rounded-full bg-accent" style={{ width: `${sum > 0 ? ((r.bytes ?? 0) / sum) * 100 : 0}%` }} />
             </div>
             <span className="text-right tabular-nums">{formatBytes(r.bytes)}</span>
@@ -298,18 +299,16 @@ function StorageSection() {
 
 function PrivacySection() {
   const settings = useAppStore((s) => s.settings);
-  const saveSettings = useAppStore((s) => s.saveSettings);
   const loadSettings = useAppStore((s) => s.loadSettings);
   const loadDiagnostics = useAppStore((s) => s.loadDiagnostics);
   const [switching, setSwitching] = useState(false);
-  const [bundling, setBundling] = useState(false);
 
   const setOffline = async (offline: boolean) => {
     setSwitching(true);
     try {
       await api.system.setOffline(offline);
       await Promise.all([loadSettings(), loadDiagnostics()]);
-      toast.success(offline ? "Offline mode on" : "Offline mode off", offline ? "Downloads are blocked and engine processes start with HF_HUB_OFFLINE=1." : "Model downloads are allowed again.");
+      toast.success(offline ? "Offline mode on" : "Offline mode off", offline ? "Nothing leaves this computer. Installed models keep working." : "Model downloads are allowed again.");
     } catch (err) {
       handleError(err, "Could not change offline mode");
     } finally {
@@ -317,121 +316,45 @@ function PrivacySection() {
     }
   };
 
-  const exportBundle = async () => {
-    setBundling(true);
-    try {
-      const r = await api.system.logBundle();
-      toast.success("Diagnostics bundle written", r.path, { action: { label: "Show in folder", onClick: () => void api.shell.revealPath(r.path) } });
-    } catch (err) {
-      handleError(err, "Could not create the diagnostics bundle");
-    } finally {
-      setBundling(false);
-    }
-  };
-
   return (
-    <Card id="privacy" title="Privacy & network" description="The app never sends telemetry. The network is used only for model downloads you approve.">
-      <div className="flex flex-col gap-5">
+    <Card id="privacy" title="Privacy" description="Everything runs on this computer. No accounts, no telemetry, no cloud — the network is only used to download models you approve.">
+      <div className="flex flex-col gap-4">
         <Switch
           label="Offline mode"
-          description="Blocks every network request: model downloads are refused with OFFLINE_BLOCKED and engine processes start with HF_HUB_OFFLINE=1 / TRANSFORMERS_OFFLINE=1. Turn it on once your models are installed."
+          description="Blocks all network access. Voice Studio keeps working with the models already installed; downloads wait until you turn this off."
           checked={settings?.offline ?? false}
           onChange={(v) => void setOffline(v)}
           disabled={!settings || switching}
         />
-        <Switch
-          label="Redact logs"
-          description="Strips user paths and names from worker logs. Applies when the worker next starts."
-          checked={settings?.redact_logs ?? true}
-          onChange={(v) => void saveSettings({ redact_logs: v })}
-          disabled={!settings}
-        />
-        <div className="rounded-[var(--radius-control)] border border-border bg-panel-alt px-4 py-3 text-[13px]">
-          <p className="font-medium">Local storage is not encrypted</p>
-          <p className="text-muted mt-0.5">Recordings, voices and projects live as plain files in the data folder (permissions 0700). Use full-disk encryption if the machine is shared.</p>
-        </div>
-        <div>
-          <Button icon={<Archive />} loading={bundling} onClick={() => void exportBundle()}>
-            Export diagnostics bundle
-          </Button>
-          <p className="text-[12.5px] text-muted mt-1.5">A zip with redacted logs and the diagnostics report, written to the exports folder. Nothing is uploaded.</p>
-        </div>
+        <p className="text-[12.5px] text-muted">Your recordings, voices and speech are stored as ordinary files in the app's data folder and are not encrypted. Use full-disk encryption if others use this computer.</p>
       </div>
     </Card>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Advanced
+// Advanced: performance & project defaults
 // ---------------------------------------------------------------------------
 
-function AdvancedSection() {
+function PerformanceSection() {
   const settings = useAppStore((s) => s.settings);
   const engines = useAppStore((s) => s.engines);
   const models = useAppStore((s) => s.models);
   const saveSettings = useAppStore((s) => s.saveSettings);
-  const params = useAppStore((s) => s.params);
   const defaultEngine = engines.find((e) => e.id === settings?.default_engine);
   const languages = defaultEngine?.capabilities?.languages ?? [];
   const asrModels = models.filter((m) => m.kind === "asr");
 
   return (
-    <Collapsible title="Advanced" description="Defaults for planning and generation. Per-project values override these." defaultOpen={params.section === "advanced"}>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3">
-        <NumberSetting
-          label="Concurrent GPU jobs"
-          value={settings?.gpu_jobs}
-          min={1}
-          max={4}
-          hint="Keep 1 unless you have VRAM to spare; more than one engine may be loaded at once."
-          onCommit={(v) => void saveSettings({ gpu_jobs: v })}
-          disabled={!settings}
-        />
-        <NumberSetting
-          label="Max characters per segment"
-          value={settings?.max_chars_per_segment}
-          min={40}
-          max={2000}
-          hint="Clamped to the engine's own limit when planning."
-          onCommit={(v) => void saveSettings({ max_chars_per_segment: v })}
-          disabled={!settings}
-        />
-        <NumberSetting label="Paragraph pause" value={settings?.paragraph_pause_ms} min={0} max={5000} step={50} suffix="ms" onCommit={(v) => void saveSettings({ paragraph_pause_ms: v })} disabled={!settings} />
-        <NumberSetting label="Sentence pause" value={settings?.sentence_pause_ms} min={0} max={3000} step={10} suffix="ms" onCommit={(v) => void saveSettings({ sentence_pause_ms: v })} disabled={!settings} />
-        <Select
-          label="Default engine"
-          value={settings?.default_engine ?? ""}
-          options={engines.map((e) => ({ value: e.id, label: `${e.name}${e.installed ? "" : " (environment missing)"}` }))}
-          onChange={(e) => void saveSettings({ default_engine: e.target.value })}
-          disabled={!settings || engines.length === 0}
-        />
-        {languages.length > 0 ? (
-          <Select
-            label="Default language"
-            value={settings?.default_language ?? ""}
-            options={languages.map((l) => ({ value: l.code, label: `${l.label} (${l.code})` }))}
-            onChange={(e) => void saveSettings({ default_language: e.target.value })}
-            disabled={!settings}
-            hint="Languages declared by the default engine."
-          />
-        ) : (
-          <Input
-            label="Default language code"
-            defaultValue={settings?.default_language ?? "en"}
-            onBlur={(e) => {
-              const v = e.target.value.trim();
-              if (v && v !== settings?.default_language) void saveSettings({ default_language: v });
-            }}
-            disabled={!settings}
-            hint="Short code such as en. The engine's declared languages appear here once its capabilities are known."
-          />
-        )}
+    <Card id="performance" title="Transcription, performance & defaults" description="Defaults for new voices and for projects in the project editor. Speak's own settings are under Speech generation.">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Select
           label="Transcription model"
           value={settings?.asr_model ?? ""}
           options={asrModels.map((m) => ({ value: m.id, label: `${m.id}${m.state === "installed" ? "" : ` (${m.state})`}` }))}
           onChange={(e) => void saveSettings({ asr_model: e.target.value })}
           disabled={!settings || asrModels.length === 0}
+          hint="Used to fill in the words of a voice sample. English-only models are faster."
         />
         <Select
           label="Transcription device"
@@ -443,36 +366,173 @@ function AdvancedSection() {
           onChange={(e) => void saveSettings({ asr_device: e.target.value as "cpu" | "cuda" })}
           disabled={!settings}
         />
+        <Select
+          label="Default engine"
+          value={settings?.default_engine ?? ""}
+          options={engines.map((e) => ({ value: e.id, label: `${e.name}${e.installed ? "" : " (environment missing)"}` }))}
+          onChange={(e) => void saveSettings({ default_engine: e.target.value })}
+          disabled={!settings || engines.length === 0}
+        />
+        {languages.length > 0 ? (
+          <Select
+            label="Default language for new voices"
+            value={settings?.default_language ?? ""}
+            options={languages.map((l) => ({ value: l.code, label: `${l.label} (${l.code})` }))}
+            onChange={(e) => void saveSettings({ default_language: e.target.value })}
+            disabled={!settings}
+          />
+        ) : (
+          <Input
+            label="Default language code"
+            defaultValue={settings?.default_language ?? "en"}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v && v !== settings?.default_language) void saveSettings({ default_language: v });
+            }}
+            disabled={!settings}
+            hint="Short code such as en."
+          />
+        )}
+        <NumberSetting
+          label="Concurrent GPU jobs"
+          value={settings?.gpu_jobs}
+          min={1}
+          max={4}
+          hint="Keep 1 unless you have VRAM to spare; more than one engine may be loaded at once."
+          onCommit={(v) => void saveSettings({ gpu_jobs: v })}
+          disabled={!settings}
+        />
+        <NumberSetting
+          label="Project default: max characters per segment"
+          value={settings?.max_chars_per_segment}
+          min={40}
+          max={2000}
+          hint="Clamped to the engine's own limit when planning."
+          onCommit={(v) => void saveSettings({ max_chars_per_segment: v })}
+          disabled={!settings}
+        />
+        <NumberSetting label="Project default: paragraph pause" value={settings?.paragraph_pause_ms} min={0} max={5000} step={50} suffix="ms" onCommit={(v) => void saveSettings({ paragraph_pause_ms: v })} disabled={!settings} />
+        <NumberSetting label="Project default: sentence pause" value={settings?.sentence_pause_ms} min={0} max={3000} step={10} suffix="ms" onCommit={(v) => void saveSettings({ sentence_pause_ms: v })} disabled={!settings} />
       </div>
-    </Collapsible>
+    </Card>
+  );
+}
+
+function RecordingFormat() {
+  const settings = useAppStore((s) => s.settings);
+  const saveSettings = useAppStore((s) => s.saveSettings);
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <Select
+        label="Recording sample rate"
+        value={String(settings?.record_sample_rate ?? 48000)}
+        options={[44100, 48000, 96000].map((r) => ({ value: String(r), label: `${r} Hz${r === 48000 ? " (recommended)" : ""}` }))}
+        onChange={(e) => void saveSettings({ record_sample_rate: Number(e.target.value) }, { silent: true })}
+        disabled={!settings}
+      />
+      <Select
+        label="Recording bit depth"
+        value={settings?.record_subtype ?? "PCM_24"}
+        options={[
+          { value: "PCM_16", label: "16-bit PCM" },
+          { value: "PCM_24", label: "24-bit PCM (recommended)" },
+          { value: "FLOAT", label: "32-bit float" },
+        ]}
+        onChange={(e) => void saveSettings({ record_subtype: e.target.value }, { silent: true })}
+        disabled={!settings}
+      />
+    </div>
+  );
+}
+
+function ToolsSection() {
+  const navigate = useAppStore((s) => s.navigate);
+  const settings = useAppStore((s) => s.settings);
+  const saveSettings = useAppStore((s) => s.saveSettings);
+  const [bundling, setBundling] = useState(false);
+  const exportBundle = async () => {
+    setBundling(true);
+    try {
+      const r = await api.system.logBundle();
+      toast.success("Diagnostics bundle written", r.path, { action: { label: "Show in folder", onClick: () => void api.shell.revealPath(r.path) } });
+    } catch (err) {
+      handleError(err, "Could not create the diagnostics bundle");
+    } finally {
+      setBundling(false);
+    }
+  };
+  return (
+    <Card id="tools" title="Tools">
+      <div className="flex flex-col gap-4">
+        <ToolRow title="Projects and the project editor" text="Long scripts as saved projects: per-sentence takes, comparing engines, backups and detailed exports." action={<Button onClick={() => navigate("projects")} icon={<FolderOpen />}>Open Projects</Button>} />
+        <ToolRow title="System check" text="FFmpeg, NVIDIA GPU and CUDA, the engine runtime, audio devices and storage." action={<Button onClick={() => navigate("setup")} icon={<Cpu />}>Run System Check</Button>} />
+        <ToolRow title="Diagnostics bundle" text="A zip with redacted logs and a system report, written to the exports folder. Nothing is uploaded." action={<Button onClick={() => void exportBundle()} loading={bundling} icon={<Archive />}>Export Bundle</Button>} />
+        <Switch
+          label="Redact logs"
+          description="Strips user paths and names from worker logs. Applies when the worker next starts."
+          checked={settings?.redact_logs ?? true}
+          onChange={(v) => void saveSettings({ redact_logs: v })}
+          disabled={!settings}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function ToolRow({ title, text, action }: { title: string; text: string; action: ReactNode }) {
+  return (
+    <div className="flex items-center gap-4 flex-wrap">
+      <div className="min-w-0 flex-1">
+        <p className="font-medium text-[14px]">{title}</p>
+        <p className="text-[12.5px] text-muted mt-0.5">{text}</p>
+      </div>
+      <div className="shrink-0">{action}</div>
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------
 
+const ADVANCED_SECTIONS = new Set(["speech", "export", "engines", "models", "recording", "storage", "performance", "tools", "advanced"]);
+
 export default function SettingsPage() {
   const params = useAppStore((s) => s.params);
-  const navigate = useAppStore((s) => s.navigate);
+  const [advanced, setAdvanced] = useState(() => ADVANCED_SECTIONS.has(params.section ?? ""));
   useEffect(() => {
-    if (params.section) document.getElementById(params.section)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!params.section) return;
+    if (ADVANCED_SECTIONS.has(params.section)) setAdvanced(true);
+    const id = params.section === "models" ? "engines" : params.section;
+    requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }, [params.section]);
 
   return (
-    <div className="flex flex-col gap-6 max-w-[960px]">
-      <Card id="audio" title="Audio devices" description="Devices are read from the worker each time diagnostics run.">
-        <AudioDevices />
+    <div className="flex flex-col gap-6 max-w-[880px] mx-auto">
+      <h1 className="text-[26px]">Settings</h1>
+      <Card id="general" title="Speech">
+        <SpeechBasics />
       </Card>
-      <EnginesSection />
-      <StorageSection />
       <PrivacySection />
-      <AdvancedSection />
-      <div className="flex items-center gap-3 text-[13px] text-muted">
-        <Cpu className="size-4" />
-        <span>Need to re-check FFmpeg, CUDA or the Python environments?</span>
-        <Button size="sm" variant="ghost" onClick={() => navigate("setup")}>
-          Open the setup checklist
-        </Button>
-      </div>
+      <Card id="audio" title="Microphone & speakers">
+        <AudioDevices simple showRecordFormat={false} />
+      </Card>
+
+      <Collapsible title="Advanced" description="For experienced users — the defaults work well." open={advanced} onOpenChange={setAdvanced} className="shadow-none">
+        <div className="flex flex-col gap-6 pt-4" id="advanced">
+          <Card id="speech" title="Speech generation" description="How Speak turns text into speech: engine, language, the engine's own settings, pauses and pronunciation.">
+            <SpeakAdvanced />
+          </Card>
+          <Card id="export" title="Save Audio details">
+            <SaveAudioAdvanced />
+          </Card>
+          <EnginesSection />
+          <Card id="recording" title="Recording format" description="The recorder negotiates the closest format the microphone supports.">
+            <RecordingFormat />
+          </Card>
+          <PerformanceSection />
+          <StorageSection />
+          <ToolsSection />
+        </div>
+      </Collapsible>
     </div>
   );
 }

@@ -363,6 +363,7 @@ export const api = {
     prepareReference: (p: ParamsOf<"audio.prepare_reference">, o?: Opts) => request("audio.prepare_reference", p, o),
     previewProcessing: (p: ParamsOf<"audio.preview_processing">, o?: Opts) => request("audio.preview_processing", p, o),
     playDeviceTest: (p: ParamsOf<"audio.play_device_test"> = {}, o?: Opts) => request("audio.play_device_test", p, o),
+    suggestReference: (p: ParamsOf<"audio.suggest_reference">, o?: Opts) => request("audio.suggest_reference", p, o),
   },
 
   record: {
@@ -424,6 +425,13 @@ export const api = {
     delete: (id: string, o?: Opts) => request("projects.delete", { id, confirm: true }, o),
     saveScript: (p: ParamsOf<"projects.save_script">, o?: Opts) => request("projects.save_script", p, o),
     selectTake: (p: ParamsOf<"projects.select_take">, o?: Opts) => request("projects.select_take", p, o),
+  },
+
+  speak: {
+    session: (p: ParamsOf<"speak.session"> = {}, o?: Opts) => request("speak.session", p, o),
+    history: (p: ParamsOf<"speak.history"> = {}, o?: Opts) => request("speak.history", p, o),
+    remember: (p: ParamsOf<"speak.remember">, o?: Opts) => request("speak.remember", p, o),
+    forget: (id: string, o?: Opts) => request("speak.forget", { id }, o),
   },
 
   library: {

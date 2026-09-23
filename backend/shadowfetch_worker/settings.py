@@ -35,6 +35,10 @@ class Settings(BaseModel):
     onboarding_done: bool = False
     rights_notice_accepted: bool = False
     engine_settings: dict[str, dict[str, Any]] = Field(default_factory=dict)   # per-engine last-used controls
+    # Speak screen
+    speak_project_id: str | None = None  # the hidden scratch project behind Speak (created on first use)
+    speak_autoplay: bool = True          # play the result as soon as it is ready
+    export_loudness_target: str | None = None   # Save Audio: optional named loudness target (audio/export.py)
     extra: dict[str, Any] = Field(default_factory=dict)
 
 

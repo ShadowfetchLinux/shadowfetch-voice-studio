@@ -10,6 +10,7 @@ faster_whisper is imported lazily so the main worker keeps starting without it.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import subprocess
 import threading
@@ -164,7 +165,11 @@ def transcribe(model, audio_path: Path, language: str | None, model_id: str, bea
             text = (seg.text or "").strip()
             if not text:
                 continue
-            segments.append({"start": round(float(seg.start), 3), "end": round(float(seg.end), 3), "text": text})
+            lp = getattr(seg, "avg_logprob", None)
+            ns = getattr(seg, "no_speech_prob", None)
+            segments.append({"start": round(float(seg.start), 3), "end": round(float(seg.end), 3), "text": text,
+                             "avg_logprob": round(float(lp), 4) if lp is not None else None,
+                             "no_speech_prob": round(float(ns), 4) if ns is not None else None})
             if progress:
                 progress(min(float(seg.end), total) if total else float(seg.end), total)
     except WorkerError:
@@ -177,4 +182,19 @@ def transcribe(model, audio_path: Path, language: str | None, model_id: str, bea
         raise WorkerError(EMPTY_AUDIO, "No speech was detected in the selection.", {"duration_s": total, "elapsed_s": round(elapsed, 3)}, True)
     return {"text": text, "language": getattr(info, "language", lang) or lang or "unknown",
             "language_probability": round(float(getattr(info, "language_probability", 0.0) or 0.0), 4),
-            "segments": segments, "duration_s": round(total, 3), "elapsed_s": round(elapsed, 3)}
+            "segments": segments, "confidence": transcript_confidence(segments),
+            "duration_s": round(total, 3), "elapsed_s": round(elapsed, 3)}
+
+
+def transcript_confidence(segments: list[dict[str, Any]]) -> float | None:
+    """Duration-weighted mean token probability (exp(avg_logprob)) of the decoded segments, 0..1; None when the model
+    reported no log-probabilities. A heuristic: below ~0.6 the words deserve a human look before cloning."""
+    num = den = 0.0
+    for s in segments:
+        lp = s.get("avg_logprob")
+        if lp is None:
+            continue
+        w = max(0.05, float(s["end"]) - float(s["start"]))
+        num += w * math.exp(min(0.0, float(lp)))
+        den += w
+    return round(num / den, 3) if den else None

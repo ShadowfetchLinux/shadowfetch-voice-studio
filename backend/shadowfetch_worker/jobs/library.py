@@ -13,6 +13,12 @@ def S(ctx: Ctx) -> dict[str, Any]:
     return ctx.server.state
 
 
+def _speak_id(ctx: Ctx) -> str:
+    """The Speak screen's scratch project is internal and never listed ("" matches no row)."""
+    settings = S(ctx).get("settings")
+    return (settings.value.speak_project_id if settings is not None else None) or ""
+
+
 class Search(BaseModel):
     query: str = ""
     include_archived: bool = False
@@ -28,8 +34,8 @@ def search(ctx: Ctx, p: Search) -> dict[str, Any]:
     projects = db.all(
         "SELECT * FROM projects p WHERE (name LIKE ? OR tags_json LIKE ? OR IFNULL(notes,'') LIKE ? OR folder LIKE ? "
         "OR EXISTS (SELECT 1 FROM scripts s WHERE s.project_id = p.id AND s.text LIKE ? "
-        "AND s.version = (SELECT MAX(version) FROM scripts WHERE project_id = p.id)))" + arch +
-        " ORDER BY updated_at DESC, rowid DESC LIMIT ?", (like, like, like, like, like, p.limit))
+        "AND s.version = (SELECT MAX(version) FROM scripts WHERE project_id = p.id)))" + arch + " AND id != ?"
+        " ORDER BY updated_at DESC, rowid DESC LIMIT ?", (like, like, like, like, like, _speak_id(ctx), p.limit))
     voices = db.all("SELECT * FROM voices WHERE (name LIKE ? OR tags_json LIKE ? OR IFNULL(notes,'') LIKE ?)" + arch +
                     " ORDER BY updated_at DESC, rowid DESC LIMIT ?", (like, like, like, p.limit))
     return {"projects": [repo.project_dict(r) for r in projects],
@@ -39,7 +45,8 @@ def search(ctx: Ctx, p: Search) -> dict[str, Any]:
 @method("library.folders")
 def folders(ctx: Ctx, params: dict[str, Any]) -> dict[str, Any]:
     db = S(ctx)["db"]
-    rows = db.all("SELECT folder, COUNT(*) AS n, SUM(archived) AS archived FROM projects GROUP BY folder ORDER BY folder COLLATE NOCASE")
+    rows = db.all("SELECT folder, COUNT(*) AS n, SUM(archived) AS archived FROM projects WHERE id != ? GROUP BY folder "
+                  "ORDER BY folder COLLATE NOCASE", (_speak_id(ctx),))
     return {"folders": [{"name": r["folder"], "count": int(r["n"]), "archived": int(r["archived"] or 0)} for r in rows]}
 
 

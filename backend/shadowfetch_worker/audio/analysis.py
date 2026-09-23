@@ -349,3 +349,178 @@ def stats(path: Path, start_s: float | None = None, end_s: float | None = None) 
         "leading_silence_s": round(leading, 3), "trailing_silence_s": round(trailing, 3), "silence_ratio": round(ratio, 4),
         "dc_offset": round(dc, 5), "warnings": warnings,
     }
+
+
+# ---------------------------------------------------------------- reference suggestion
+REF_WINDOW_MS = 20.0
+REF_MIN_PAUSE_S = 0.2          # a gap this long between words is a phrase boundary (a safe place to cut)
+REF_EDGE_PAD_S = 0.15          # room kept before the first / after the last word of a selection
+REF_MAX_SCAN_S = 300.0         # a reference is ~15 s; the first five minutes are plenty to find one
+
+
+def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
+    """[start, end) index runs where `mask` is True."""
+    if len(mask) == 0:
+        return []
+    m = np.concatenate([[False], mask.astype(bool), [False]])
+    d = np.diff(m.astype(np.int8))
+    starts = np.flatnonzero(d == 1)
+    ends = np.flatnonzero(d == -1)
+    return list(zip(starts.tolist(), ends.tolist()))
+
+
+def suggest_reference_range(x: np.ndarray, sr: int, min_s: float, max_s: float, recommended: tuple[float, float]) -> dict[str, Any]:
+    """Pick a clean reference section from mono samples `x`: whole phrases (cut only inside pauses, with a little
+    room before the first and after the last word), mostly active speech, steady level, no clipping, and a length
+    inside the engine's recommended window when the audio allows it.
+
+    Heuristic and measured only — it does not detect speakers or noise types. `reliable` is False when no section
+    with clean edges and enough speech exists; the caller should then let the user choose the range by hand.
+    """
+    lo, hi = float(recommended[0] or 8.0), float(recommended[1] or 15.0)
+    if hi <= 0:
+        lo, hi = 8.0, 15.0
+    allowed_lo = max(float(min_s) + 0.25, 1.0)
+    allowed_hi = max(allowed_lo, float(max_s) - 0.05)
+    target = (lo + hi) / 2.0
+    w = max(1, int(round(sr * REF_WINDOW_MS / 1000.0)))
+    ws = w / sr
+    n = len(x)
+    total_s = n / sr if sr else 0.0
+    count = max(1, math.ceil(n / w))
+    padded = np.zeros(count * w, dtype=np.float32)
+    padded[:n] = x[:n]
+    frames = padded.reshape(count, w)
+    lengths = np.full(count, w, dtype=np.float64)
+    lengths[-1] = max(1, n - (count - 1) * w)
+    rms = np.sqrt((frames.astype(np.float64) ** 2).sum(axis=1) / lengths)
+    with np.errstate(divide="ignore"):
+        db = np.maximum(20.0 * np.log10(np.maximum(rms, 1e-12)), DB_FLOOR)
+    clipped = (np.abs(frames) >= CLIP_LEVEL).sum(axis=1)
+
+    audible = db[db > DB_FLOOR + 1.0]
+    if len(audible) == 0:
+        noise = speech_level = DB_FLOOR
+    else:
+        noise = float(np.percentile(db, 5))              # pauses and word gaps (digital silence counts as silence)
+        speech_level = float(np.percentile(audible, 95))
+    spread = speech_level - noise
+    thr = max(SILENCE_DBFS - 5.0, min(speech_level - 12.0, noise + max(6.0, 0.35 * spread)))
+    active = db >= thr
+    # word gaps shorter than REF_MIN_PAUSE_S count as speech (hangover), longer ones are pauses
+    min_pause = max(1, int(round(REF_MIN_PAUSE_S / ws)))
+    for a, b in _runs(~active):
+        if b - a < min_pause and a > 0 and b < count:
+            active[a:b] = True
+    speech_s = float(active.sum()) * ws
+    pauses = [(a, b) for a, b in _runs(~active)]
+
+    # candidate cut points: (time, clean) — starts just before speech resumes, ends just after it stops
+    starts: list[tuple[float, bool, int]] = []     # (time_s, clean_edge, first_window)
+    ends: list[tuple[float, bool, int]] = []       # (time_s, clean_edge, end_window)
+    if count and active[0]:
+        starts.append((0.0, False, 0))
+    if count and active[-1]:
+        ends.append((total_s, False, count))
+    for a, b in pauses:
+        pad = min(REF_EDGE_PAD_S, (b - a) * ws / 2.0)
+        if b < count:
+            starts.append((max(a * ws, b * ws - pad), True, b))
+        if a > 0:
+            ends.append((min(b * ws, a * ws + pad, total_s), True, a))
+    starts.sort()
+    ends.sort()
+
+    act_cum = np.concatenate([[0], np.cumsum(active.astype(np.int64))])
+    clip_cum = np.concatenate([[0], np.cumsum((clipped > 0).astype(np.int64))])
+    db_act = np.where(active, db, 0.0)
+    s1 = np.concatenate([[0.0], np.cumsum(db_act)])
+    s2 = np.concatenate([[0.0], np.cumsum(db_act * db_act)])
+    long_pause = np.zeros(count + 1, dtype=np.int64)          # for each window index: length of a pause ending there
+    for a, b in pauses:
+        long_pause[b] = b - a
+
+    best: tuple[float, dict[str, Any]] | None = None
+    for st, st_clean, wa in starts:
+        for en, en_clean, wb in ends:
+            if wb <= wa:
+                continue
+            d = en - st
+            if d < allowed_lo:
+                continue
+            if d > allowed_hi:
+                break
+            nwin = max(1, wb - wa)
+            act = int(act_cum[wb] - act_cum[wa])
+            ratio = act / nwin
+            if act:
+                mean = (s1[wb] - s1[wa]) / act
+                std = math.sqrt(max(0.0, (s2[wb] - s2[wa]) / act - mean * mean))
+            else:
+                mean, std = DB_FLOOR, 0.0
+            clip_w = int(clip_cum[wb] - clip_cum[wa])
+            inner = long_pause[wa + 1:wb]
+            longest = float(inner.max()) * ws if len(inner) else 0.0
+            dur_pen = 0.0 if lo <= d <= hi else ((lo - d) / lo * 2.0 if d < lo else (d - hi) / hi * 2.0)
+            score = (3.0 * ratio - dur_pen - 0.05 * abs(d - target) - 1.5 * min(1.0, clip_w / 5.0)
+                     - 0.05 * max(0.0, std - 6.0) - 0.8 * max(0.0, longest - 0.8)
+                     - (0.0 if st_clean else 1.0) - (0.0 if en_clean else 1.0) - 0.0005 * st)
+            if best is None or score > best[0]:
+                best = (score, {"start_s": round(st, 3), "end_s": round(en, 3), "speech_ratio": round(ratio, 3),
+                                "edges_clean": bool(st_clean and en_clean), "clipped_windows": clip_w,
+                                "level_std_db": round(std, 2), "longest_pause_s": round(longest, 2)})
+
+    if best is not None:
+        sel = best[1]
+        dur = sel["end_s"] - sel["start_s"]
+        reliable = bool(sel["edges_clean"] and sel["speech_ratio"] >= 0.5 and dur >= max(allowed_lo, min(lo, 5.0)))
+    else:
+        # nothing phrase-aligned fits: the densest stretch of the right length, for the user to adjust by hand
+        span = int(round(min(max(lo, allowed_lo), total_s, allowed_hi) / ws)) or count
+        span = min(span, count)
+        dens = act_cum[span:] - act_cum[:-span] if span < count + 1 else np.array([act_cum[-1]])
+        i = int(np.argmax(dens)) if len(dens) else 0
+        a, b = i * ws, min(total_s, (i + span) * ws)
+        sel = {"start_s": round(a, 3), "end_s": round(b, 3), "speech_ratio": round(float(dens[i]) / max(1, span), 3) if len(dens) else 0.0,
+               "edges_clean": False, "clipped_windows": int(clip_cum[min(count, i + span)] - clip_cum[i]), "level_std_db": None,
+               "longest_pause_s": None}
+        reliable = False
+
+    snr = speech_level - noise
+    sel_peak = float(np.max(np.abs(x[int(sel["start_s"] * sr):int(sel["end_s"] * sr)]))) if sel["end_s"] > sel["start_s"] else 0.0
+    issues: list[dict[str, Any]] = []
+
+    def issue(code: str, message: str, severity: str = "warn") -> None:
+        issues.append({"code": code, "message": message, "severity": severity, "heuristic": True})
+
+    if speech_s < 0.5 or speech_level <= SILENCE_DBFS:
+        issue("NO_SPEECH", "No speech was found in this audio.", "block")
+    elif speech_s <= float(min_s):
+        issue("TOO_SHORT", f"Only about {speech_s:.0f} s of speech; at least {float(min_s) + 1:.0f} s is needed.", "block")
+    else:
+        if dbfs(sel_peak) < -30.0 or speech_level < -40.0:
+            issue("TOO_QUIET", f"The speech is very quiet (peak {dbfs(sel_peak):.0f} dBFS).")
+        if sel["clipped_windows"] >= 3:
+            issue("CLIPPING", "The recording is distorted (clipped) in places.")
+        if snr < 15.0 and speech_level > SILENCE_DBFS:
+            issue("NOISY", f"The voice is only about {snr:.0f} dB above the background noise.")
+        if sel["speech_ratio"] < 0.5:
+            issue("MOSTLY_SILENT", "The usable part contains a lot of silence.")
+        if speech_s < lo:
+            issue("SHORT", f"About {speech_s:.0f} s of speech; {lo:.0f}–{hi:.0f} s clones best.")
+    return {**sel, "duration_s": round(sel["end_s"] - sel["start_s"], 3), "reliable": reliable and not any(i["severity"] == "block" for i in issues),
+            "total_s": round(total_s, 3), "speech_s": round(speech_s, 2), "noise_floor_dbfs": round(noise, 1),
+            "speech_level_dbfs": round(speech_level, 1), "snr_db": round(snr, 1), "peak_dbfs": dbfs(sel_peak), "issues": issues,
+            "recommended_seconds": [lo, hi]}
+
+
+def suggest_reference(path: Path, min_s: float, max_s: float, recommended: tuple[float, float],
+                      max_scan_s: float = REF_MAX_SCAN_S) -> dict[str, Any]:
+    """`suggest_reference_range` over the first `max_scan_s` seconds of a file (mono)."""
+    with opened(Path(path)) as f:
+        total = f.frames / f.samplerate
+    x, sr = read_audio(Path(path), 0.0, min(total, max_scan_s))
+    out = suggest_reference_range(x, sr, min_s, max_s, recommended)
+    out["total_s"] = round(total, 3)
+    out["scanned_s"] = round(min(total, max_scan_s), 3)
+    return out

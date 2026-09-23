@@ -42,6 +42,7 @@ class ProjectList(BaseModel):
     favorite: bool | None = None
     archived: bool | None = False        # False: active only, True: archived only, None: both
     folder: str | None = None
+    include_speak: bool = False          # the Speak screen's scratch project is internal
     sort: Literal["updated", "created", "name"] = "updated"
     limit: int = 500
 
@@ -149,8 +150,13 @@ def create(ctx: Ctx, p: ProjectCreate) -> dict[str, Any]:
 
 @method("projects.list", params=ProjectList)
 def list_(ctx: Ctx, p: ProjectList) -> dict[str, Any]:
-    db = S(ctx)["db"]
+    st = S(ctx)
+    db = st["db"]
     where, args = [], []
+    speak_id = st["settings"].value.speak_project_id if st.get("settings") is not None else None
+    if speak_id and not p.include_speak:
+        where.append("id != ?")
+        args.append(speak_id)
     if p.archived is not None:
         where.append("archived = ?")
         args.append(int(p.archived))
@@ -256,9 +262,11 @@ def duplicate(ctx: Ctx, p: Duplicate) -> dict[str, Any]:
                     shutil.copy2(t["path"], dst)
                     copied += 1
                 c.execute("INSERT INTO takes (id, segment_id, project_id, engine_id, model_revision, reference_id, path, sample_rate, "
-                          "duration_s, seed, settings_json, label, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                          "duration_s, seed, settings_json, label, status, created_at, reference_fingerprint, language) "
+                          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                           (new_tid, new_sid, new_pid, t["engine_id"], t["model_revision"], t["reference_id"], str(dst), t["sample_rate"],
-                           t["duration_s"], t["seed"], dumps(t["settings"]), t["label"], t["status"], t["created_at"]))
+                           t["duration_s"], t["seed"], dumps(t["settings"]), t["label"], t["status"], t["created_at"],
+                           t.get("reference_fingerprint"), t.get("language")))
                 if t["id"] == s["selected_take_id"]:
                     c.execute("UPDATE segments SET selected_take_id = ? WHERE id = ?", (new_tid, new_sid))
     log.info("duplicated project %s -> %s (%d take files)", p.id, new_pid, copied)

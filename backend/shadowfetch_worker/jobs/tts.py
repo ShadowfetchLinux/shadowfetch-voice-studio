@@ -19,7 +19,7 @@ from ..paths import safe_filename
 from ..protocol import ENGINE_UNAVAILABLE, INVALID_PARAMS, NOT_FOUND, CancelledError, WorkerError
 from ..rpc import Ctx, method
 from ..store import repo
-from ..store.db import dumps, new_id
+from ..store.db import dumps, loads, new_id
 from ..text.segmenter import plan_segments
 from .voices import ensure_reference_file
 
@@ -55,6 +55,9 @@ class GenerateParams(BaseModel):
     settings: dict[str, Any] = Field(default_factory=dict)
     seed: int | None = None
     regenerate_all: bool = False
+    # Speak: regenerate only segments whose selected take was not made with this exact voice audio (reference id +
+    # fingerprint), engine, language and controls. Default mode skips any segment with a take, whoever spoke it.
+    only_changed: bool = False
 
 
 class AssembleParams(BaseModel):
@@ -164,10 +167,27 @@ def _has_take(db, seg) -> bool:
     return bool(t and Path(t["path"]).exists())
 
 
-def _insert_take(db, seg, project_id: str, take_id: str, engine_id: str, revision: str, ref_id: str, res: dict[str, Any],
-                 out: Path, settings: dict[str, Any], seed: int | None, label: str | None, select: bool) -> dict[str, Any]:
+def _take_matches(db, seg, engine_id: str, ref, language: str, controls: dict[str, Any]) -> bool:
+    """The segment's selected take is usable AND was made with this engine, this exact reference audio (id +
+    fingerprint), this language and these controls. Takes from before migration 0002 carry no fingerprint → False."""
+    if not seg["selected_take_id"]:
+        return False
+    t = db.one("SELECT * FROM takes WHERE id = ? AND status = 'ok'", (seg["selected_take_id"],))
+    if t is None or not Path(t["path"]).exists():
+        return False
+    if t["engine_id"] != engine_id or t["reference_id"] != ref["id"] or t["language"] != language:
+        return False
+    if not t["reference_fingerprint"] or t["reference_fingerprint"] != ref["fingerprint"]:
+        return False
+    return (loads(t["settings_json"], {}) or {}) == controls
+
+
+def _insert_take(db, seg, project_id: str, take_id: str, engine_id: str, revision: str, ref, res: dict[str, Any],
+                 out: Path, settings: dict[str, Any], seed: int | None, label: str | None, select: bool,
+                 language: str | None = None) -> dict[str, Any]:
     take = {"id": take_id, "segment_id": seg["id"], "project_id": project_id, "engine_id": engine_id, "model_revision": revision or None,
-            "reference_id": ref_id, "path": str(res.get("path") or out), "sample_rate": res.get("sample_rate"),
+            "reference_id": ref["id"], "reference_fingerprint": ref["fingerprint"], "language": language,
+            "path": str(res.get("path") or out), "sample_rate": res.get("sample_rate"),
             "duration_s": res.get("duration_s"), "seed": res.get("seed", seed), "settings_json": dumps(settings), "label": label,
             "status": "ok"}
     db.insert("takes", take)
@@ -265,17 +285,29 @@ def generate(ctx: Ctx, p: GenerateParams) -> dict[str, Any]:
         if bad:
             raise WorkerError(INVALID_PARAMS, f"Segment index(es) not in the current plan: {bad}", {"bad_indices": bad})
         targets = [by_idx[i] for i in sorted(set(p.segment_indices))]
+    elif p.only_changed:
+        targets = [s for s in segs if not _take_matches(db, s, engine_id, ref, language, controls)]
     else:
         targets = [s for s in segs if not _has_take(db, s)]
     target_ids = {s["id"] for s in targets}
     skipped = [s["idx"] for s in segs if s["id"] not in target_ids]
 
-    # remember what was used so the project reopens with the same setup
+    # remember what was used so the project reopens with the same setup — but never overwrite stored values with
+    # "not sent": no controls for an engine that declares some (the caller did not know them yet), or no seed field
     db.update("projects", p.project_id, {"engine_id": engine_id, "reference_id": ref["id"], "voice_id": ref["voice_id"], "language": language})
-    repo.merge_project_settings(db, p.project_id, {"controls": {engine_id: controls}, "seed": p.seed})
-    settings.patch({"engine_settings": {**settings.value.engine_settings, engine_id: controls}})
+    remembered: dict[str, Any] = {}
+    if controls or not caps.controls:
+        remembered["controls"] = {engine_id: controls}
+        settings.patch({"engine_settings": {**settings.value.engine_settings, engine_id: controls}})
+    if "seed" in p.model_fields_set:
+        remembered["seed"] = p.seed
+    if remembered:
+        repo.merge_project_settings(db, p.project_id, remembered)
 
     t0 = time.time()
+    if not targets:   # every segment already has a matching take: nothing to load onto the GPU
+        return {"takes": [], "skipped": skipped, "elapsed_s": 0.0, "engine_id": engine_id, "reference_id": ref["id"],
+                "model_revision": None, "prompt_cache_id": None, "warnings": warnings}
     prep = prepare_engine(ctx, st, engine_id, caps, ref, language, controls)
     engines = _engines(st)
     completed: list[dict[str, Any]] = []
@@ -290,8 +322,8 @@ def generate(ctx: Ctx, p: GenerateParams) -> dict[str, Any]:
             per_seed = seed + int(seg["idx"]) if seed is not None else None
             res = engines.generate(ctx, engine_id, seg["normalized_text"], language, prep["reference_path"], ref["transcript"], out,
                                    controls, per_seed, prep["prompt_path"]) or {}
-            completed.append(_insert_take(db, seg, p.project_id, take_id, engine_id, prep["model_revision"], ref["id"], res, out,
-                                          controls, per_seed, p.take_label, select=True))
+            completed.append(_insert_take(db, seg, p.project_id, take_id, engine_id, prep["model_revision"], ref, res, out,
+                                          controls, per_seed, p.take_label, select=True, language=language))
         except WorkerError as e:
             details = {**e.details, "completed": completed, "failed_segment": seg["idx"], "engine_id": engine_id}
             if isinstance(e, CancelledError):
@@ -380,8 +412,8 @@ def compare_engines(ctx: Ctx, p: CompareParams) -> dict[str, Any]:
             per_seed = p.seed + int(seg["idx"]) if (p.seed is not None and caps.supports_seed) else None
             res = engines.generate(ctx, engine_id, seg["normalized_text"], language, prep["reference_path"], ref["transcript"], out,
                                    controls, per_seed, prep["prompt_path"]) or {}
-            take = _insert_take(db, seg, p.project_id, take_id, engine_id, prep["model_revision"], ref["id"], res, out, controls,
-                                per_seed, f"compare:{engine_id}", select=False)
+            take = _insert_take(db, seg, p.project_id, take_id, engine_id, prep["model_revision"], ref, res, out, controls,
+                                per_seed, f"compare:{engine_id}", select=False, language=language)
             preview = paths.tmp / f"compare-{take_id}.wav"
             from ..audio import edit
             edit.loudness_match_copy(Path(take["path"]), preview, target_lufs=-18.0)

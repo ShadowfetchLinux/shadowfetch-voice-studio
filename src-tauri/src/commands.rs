@@ -328,7 +328,11 @@ where
 
 // ---------------------------------------------------------------- dialogs
 
-/// Native multi-select dialog for wav/mp3/flac files. Empty when cancelled.
+/// Audio the import pipeline can decode (FFmpeg): offered by the file picker. Anything else is still re-validated
+/// by the worker, which reports UNSUPPORTED_FILE / CORRUPT_FILE with the real reason.
+pub const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "flac", "ogg", "oga", "opus", "m4a", "aac", "aiff", "aif", "webm", "wma"];
+
+/// Native multi-select dialog for audio files (`AUDIO_EXTENSIONS`). Empty when cancelled.
 #[tauri::command]
 pub async fn pick_audio_files(
     app: AppHandle,
@@ -338,7 +342,7 @@ pub async fn pick_audio_files(
         .dialog()
         .file()
         .set_title("Choose audio files")
-        .add_filter("Audio", &["wav", "mp3", "flac"])
+        .add_filter("Audio", AUDIO_EXTENSIONS)
         .blocking_pick_files()
         .unwrap_or_default();
     let mut out = Vec::new();

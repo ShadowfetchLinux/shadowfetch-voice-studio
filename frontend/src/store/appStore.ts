@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { create } from "zustand";
 import { api, isPreviewMock } from "@/lib/api";
 import type {
@@ -13,25 +12,22 @@ import type {
   WorkerStatus,
 } from "@/lib/protocol";
 import { WorkerError } from "@/lib/protocol";
+import { friendlyError, logWorkerError } from "@/lib/friendlyErrors";
 import { toast, useToastStore } from "@/components/ui/Toast";
 
-export type Page = "home" | "voices" | "create" | "library" | "settings" | "setup";
+/**
+ * Pages. The app is built around two: Speak (the default) and Voices; Settings sits behind the gear.
+ * "setup" (system check), "projects" and "editor" (multi-take project editor) are advanced tools reached from Settings.
+ */
+export type Page = "speak" | "voices" | "settings" | "setup" | "projects" | "editor";
 
-/** Optional parameters for a page (e.g. open a project, start the recorder). */
+/** Optional parameters for a page (e.g. open a project in the editor, scroll Settings to a section). */
 export interface RouteParams {
   projectId?: string;
-  voiceId?: string;
-  /** Initial action: voices→"record" / "import" / "new" (fresh create-voice flow); create→"new". */
-  action?: "record" | "import" | "new";
-  /** Unique per navigation so repeating the same voices action remounts the wizard. */
-  nav?: number;
+  /** editor → "new": start a new project. */
+  action?: "new";
   /** Settings section to scroll to. */
   section?: string;
-}
-
-/** Route params that always start (or restart) the create-voice flow. */
-export function newVoiceParams(source?: "record" | "import"): RouteParams {
-  return { action: source ?? "new", nav: Date.now() };
 }
 
 export interface AppState {
@@ -81,8 +77,11 @@ export interface AppState {
 export function handleError(err: unknown, title = "Something went wrong"): WorkerError {
   const we = WorkerError.from(err);
   if (we.cancelled) return we;
-  const detail = we.code && we.code !== "CLIENT" ? `${we.message}\n(${we.code}${we.recoverable ? "" : ", restart may be required"})` : we.message;
-  toast.error(title, detail);
+  logWorkerError(title, we);
+  // Plain words first; the code stays visible (last line) for bug reports, and the full error is in the log.
+  const friendly = friendlyError(we);
+  const known = we.code && we.code !== "CLIENT" && we.code !== "INVALID_PARAMS" && we.code !== "INTERNAL";
+  toast.error(title, known ? `${friendly.message}\n(${we.code})` : we.message);
   return we;
 }
 
@@ -118,10 +117,8 @@ async function runBoot(set: Set, get: Get): Promise<void> {
       } else set({ booted: false, bootError: null });
       return;
     }
-    const firstBoot = get().settings == null;
-    const settings = await get().loadSettings();
-    // First run → guided setup (only on the initial boot, never when the worker comes back after a restart).
-    if (firstBoot && settings && !settings.onboarding_done) set({ page: "setup", params: {} });
+    await get().loadSettings();
+    // Always open on Speak: missing models are offered right where they are needed (model setup dialog).
     set({ booted: true, bootError: null });
     // Everything else loads in the background; the new worker process has fresh engine/model state.
     void Promise.all([get().loadDiagnostics(), get().loadEngines(), get().loadModels(), get().refreshGpu()]);
@@ -132,7 +129,7 @@ async function runBoot(set: Set, get: Get): Promise<void> {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  page: "home",
+  page: "speak",
   params: {},
   navigate: (page, params = {}) => set({ page, params, shortcutsOpen: false }),
   shortcutsOpen: false,
@@ -272,13 +269,6 @@ export function selectLoadedEngine(engines: EngineInfo[], engineStates: Record<s
     }
   }
   return null;
-}
-
-/** Hook form of `selectLoadedEngine` (memoised — zustand selectors must not return fresh objects). */
-export function useLoadedEngine(): LoadedEngine | null {
-  const engines = useAppStore((s) => s.engines);
-  const engineStates = useAppStore((s) => s.engineStates);
-  return useMemo(() => selectLoadedEngine(engines, engineStates), [engines, engineStates]);
 }
 
 export { toast, useToastStore };

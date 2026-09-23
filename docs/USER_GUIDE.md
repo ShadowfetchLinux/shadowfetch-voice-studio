@@ -1,71 +1,76 @@
 # User guide
 
-## First run
+Shadowfetch Voice Studio is a notepad whose text can speak in any voice you have cloned: **choose a voice → type →
+Speak**. Everything runs on your computer.
 
-Home shows **three steps**: New voice → Create speech → Library. You can start a voice immediately.
-Setup (FFmpeg, NVIDIA GPU, Python engine runtime, audio devices, storage, model weights) is still
-available from Home if something is missing — come back when recording or generation asks for it.
+## Speak
 
-Each model shows its source repository, pinned revision, license and download size *before* you
-download it. Chatterbox-Turbo is optional. Nothing is downloaded without your click, and a partial
-download is never reported as installed (use **Verify** if in doubt). You can also point the app at an
-existing model folder. The engine runtime is a standalone copy under the app data folder, not the
-source tree.
+The app opens here, with the cursor in the editor.
 
-## New voice (Voices)
+- **Voice** — pick a voice the way you would pick a font. The menu also has **Clone New Voice…** and **Manage Voices**.
+  The last voice you used is remembered.
+- **The editor** — type or paste any amount of text. It is saved as you type and comes back after a restart
+  (undo/redo, select all and spell checking work as usual).
+- **Speak** (or **Ctrl+Enter**) — generates the speech and plays it as soon as it is ready. For longer text the button
+  shows progress ("Generating speech — 3 of 12"). **Stop** (or **Esc**) cancels; anything already finished is kept, so
+  pressing Speak again continues quickly.
+- Change a sentence and press Speak again: only what changed is generated again. Press Speak without changing anything
+  and you get a fresh reading of the whole text. Switching to another voice always regenerates everything with that voice.
+- **Generated speech** — play/pause, scrub, and **Save Audio**. Save Audio writes a 24-bit WAV by default; the arrow
+  next to it saves MP3 or FLAC instead. Saved files are marked as AI-generated in their metadata (Settings can turn that off).
+- **Recent** — your last results. Click one to play it again; the × removes it.
 
-The **New voice** button (or `n`) opens the wizard on the right. Nothing is stored until you save.
+The first time Speak needs the voice model, Voice Studio shows what it will download (name, size, source, license) and
+waits for you to click **Download model**. In offline mode it explains that downloads are blocked instead.
 
-1. **Source** — record with the microphone (pick the device, watch the level meter; clipping is flagged) or
-   import WAV/MP3/FLAC (dialog or drag-and-drop). Three guided reading scripts are provided; 30–60 s of natural
-   speech is a good session. Input monitoring is off by default (speakers + a live mic make a
-   feedback loop). Turn it on under Settings → Audio devices if you wear headphones.
-2. **Review & trim** — pick a clean 8–15 s excerpt with the trim handles (**Undo trim** / Ctrl+Z restores the
-   previous range); the app shows the engine's own limits (Qwen: more than 3 s; Chatterbox: more than 5 s,
-   first 10–15 s used). Measurements (peak, silence, clipping) are labelled as heuristics. Optional processing
-   (peak normalise, trim silence, high-pass) is off by default, previewable and applied to a copy — the original
-   is never modified. The saved profile lists that processing history on the derived copy.
-3. **Transcript** — transcribe the excerpt locally (faster-whisper on CPU by default) and *correct it*; you must
-   tick "I reviewed this transcript". Changing the selection marks the transcript stale.
-4. **Save** — name, tags, language, and the rights confirmation. Saving a profile stores audio + transcript
-   (the source of truth); engine prompts are caches rebuilt automatically when anything changes. After save you
-   can retrim a reference (the transcript is marked unreviewed) or open **Dataset workspace** to correct
-   recordings and export a Qwen3-TTS fine-tuning JSONL. There is no Train button — full-parameter 1.7B SFT
-   does not fit in 16 GB of VRAM (see `docs/FINETUNING.md`).
+## Clone a voice
 
-## Create
+**Clone Voice** (on Speak or Voices) offers two choices:
 
-Write or import a script (large editor with autosave), choose a voice/reference and engine, and generate a
-preview (first segment) or the full script. Long scripts are split at sentence boundaries into segments that fit
-the engine; numbers can be spelled out and pronunciation substitutions applied — every substitution is listed
-per segment. Progress is measured ("Generating segment 3 of 12"). Regenerate a single segment without losing the
-others; every generation is a **take** you can compare and select. **Assemble** joins the selected takes with
-configurable sentence/paragraph pauses (silence trimmed conservatively, short fades, no overlaps).
+- **Record Voice** — pick your microphone, press the big button and read the text shown (or anything you like) naturally
+  for 20–30 seconds, then stop. A live level shows that the microphone hears you; you are told if it is too loud or too quiet.
+- **Use Audio File** — choose a WAV, MP3, FLAC, OGG, M4A or other common audio file, or drop it on the window.
+  Your file is copied; the original is never changed.
 
-Only controls the selected engine actually supports are shown (Qwen: sampling controls; Chatterbox: sampling
-controls, reference loudness normalisation and its nine paralinguistic tags). There are no universal
-"stability" or "emotion" sliders because the engines do not have them. Seeds are saved with takes; the same seed
-reproduces a take on one machine but is not guaranteed across environments.
+Voice Studio then prepares the sample by itself: it finds the clearest 8–15 seconds (whole phrases, starting and
+ending between words), checks the level, clipping, silence and background noise, and writes down the words spoken in
+that part with the local speech-recognition model. When it is done you see **Voice sample ready**: play the sample,
+give the voice a name, confirm that it is your voice or that you have permission to clone it, and press **Create Voice**.
+The new voice is selected on Speak right away.
 
-## Library
+If the sample has problems they are explained in plain words (for example "The recording is very quiet") with
+**Try Anyway**, **Choose Another File** / **Record Again**, and **Edit Sample**. A sample without usable speech cannot be
+used. When no clean part can be found automatically, the sample editor opens so you can choose it.
 
-Search, tags, favourites, folders, duplicate, archive, delete (confirmed; references and originals are never
-cascade-deleted). Export the master as WAV (16/24-bit or float), FLAC or MP3 (bitrate/VBR); keep the engine's
-native 24 kHz or make a 48 kHz copy (upsampling adds no detail). Optional loudness normalisation to a *named*
-target (Podcast −16 LUFS, Streaming −14, EBU R128 −23) is measured after export. Exports can carry
-"AI-generated speech" metadata; Chatterbox output additionally keeps Resemble's Perth watermark. Backups are
-portable zips (metadata JSON + audio) with size and path-traversal protection on restore.
+**Edit Sample** is optional: drag across the waveform to choose the part to clone from, correct the words spoken in it
+(the voice is cloned from the audio *and* these exact words), and optionally clean the sample up (even out the volume,
+trim silence, remove rumble — always applied to a copy).
+
+## Voices
+
+Your voices with their sample length and date. **Play Sample** plays the part the voice is cloned from; **Use Voice**
+selects it on Speak. The **⋯** menu has **Rename**, **Add Recording** (another sample; the voice then speaks with it),
+**Edit Sample**, **Delete** (speech you already made is kept; your original recordings stay on disk), and
+**Export training data…** (see `docs/FINETUNING.md`).
 
 ## Settings
 
-Audio devices (including optional input monitoring — headphones only), engines & models (download / verify /
-use existing folder / remove / load / unload, idle unload), storage (usage, clear regenerable caches —
-recordings and masters are never touched), privacy (offline mode blocks every network request; logs are
-redacted; local storage is not encrypted), and advanced options. A fine-tuned Qwen folder whose `config.json`
-says `tts_model_type: custom_voice` is loaded as a speaker-driven checkpoint rather than a reference clone.
+- **Speech** — play speech automatically; the format Save Audio uses.
+- **Privacy** — **offline mode** blocks every network request; installed models keep working.
+- **Microphone & speakers** — devices, a test tone, and hearing yourself while recording (headphones only).
+- **Advanced** (collapsed) — for experienced users:
+  - **Speech generation** — engine (Automatic uses Qwen3-TTS), language, the selected engine's own settings (only
+    settings the engine actually supports are shown), seed, pauses between sentences and paragraphs, the longest piece
+    generated at once, spelling out numbers, and pronunciation substitutions. These apply to Speak.
+  - **Save Audio details** — WAV bit depth, MP3 bitrate, a named loudness target (Podcast −16, Streaming −14,
+    EBU R128 −23 LUFS, measured after saving), AI-generated metadata.
+  - **Models & engines** — download / verify / use an existing folder / remove models; load or unload engines; idle unload.
+  - **Recording format**, **Transcription, performance & defaults**, **Storage** (usage, clear regenerable caches).
+  - **Tools** — **Projects** and the project editor (long scripts as saved projects with per-sentence takes, engine
+    comparison, backups and detailed exports), the **System check** (FFmpeg, GPU/CUDA, engine runtime, devices, storage),
+    and a redacted **diagnostics bundle**.
 
 ## Keyboard
 
-`n` New voice · `1`–`5` switch pages · `Ctrl+Enter` generate full · `Ctrl+Shift+Enter` preview · `Esc` cancel ·
-arrows nudge trim handles (Shift for larger steps) · `Ctrl+Z` undoes the last trim change · `Space` toggles
-master playback when the editor is not focused · `?` shortcut list.
+**Ctrl+Enter** speak · **Esc** stop (or close a dialog) · in the sample editor: arrows nudge a selected trim handle
+(Shift for larger steps), Ctrl+wheel zooms the waveform.

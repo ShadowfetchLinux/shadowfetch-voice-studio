@@ -85,7 +85,7 @@ function ToastItem({ t, onDismiss }: { t: Toast; onDismiss: () => void }) {
           </button>
         )}
       </div>
-      <button type="button" aria-label="Dismiss" onClick={onDismiss} className="shrink-0 -mr-1 -mt-0.5 size-8 inline-flex items-center justify-center rounded-md text-muted hover:text-text hover:bg-black/5">
+      <button type="button" aria-label="Dismiss" onClick={onDismiss} className="shrink-0 -mr-1 -mt-0.5 size-8 inline-flex items-center justify-center rounded-md text-muted hover:text-text hover:bg-hover">
         <X className="size-4" />
       </button>
     </div>

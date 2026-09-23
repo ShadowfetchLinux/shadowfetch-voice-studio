@@ -14,17 +14,19 @@ const SUBTYPES: Array<{ value: string; label: string }> = [
   { value: "FLOAT", label: "32-bit float" },
 ];
 
-function deviceLabel(d: Device): string {
-  return `${d.name} (${d.hostapi}${d.default_samplerate ? `, ${Math.round(d.default_samplerate)} Hz` : ""})`;
+function deviceLabel(d: Device, technical: boolean): string {
+  return technical ? `${d.name} (${d.hostapi}${d.default_samplerate ? `, ${Math.round(d.default_samplerate)} Hz` : ""})` : d.name;
 }
 
 export interface AudioDevicesProps {
-  /** Also show record sample rate / subtype (Settings page). */
+  /** Also show record sample rate / subtype. */
   showRecordFormat?: boolean;
+  /** Plain labels and hints for the everyday Settings card (no host APIs, sample rates or monitoring details). */
+  simple?: boolean;
 }
 
 /** Input/output device pickers backed by `system.diagnostics.audio`, with a test tone. */
-export function AudioDevices({ showRecordFormat = true }: AudioDevicesProps) {
+export function AudioDevices({ showRecordFormat = true, simple = false }: AudioDevicesProps) {
   const diagnostics = useAppStore((s) => s.diagnostics);
   const loading = useAppStore((s) => s.diagnosticsLoading);
   const loadDiagnostics = useAppStore((s) => s.loadDiagnostics);
@@ -55,27 +57,27 @@ export function AudioDevices({ showRecordFormat = true }: AudioDevicesProps) {
     <div className="flex flex-col gap-4">
       {audio?.error && (
         <p className="text-[13px] text-warn" role="alert">
-          Audio device enumeration failed: {audio.error}
+          {simple ? "Your audio devices couldn't be listed. Check that the microphone is connected, then press Rescan." : `Audio device enumeration failed: ${audio.error}`}
         </p>
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Select
-          label="Input device (microphone)"
+          label={simple ? "Microphone" : "Input device (microphone)"}
           value={inputValue}
           placeholder={inputs.length ? `System default${audio?.default_input != null ? ` (${inputs.find((d) => d.index === audio.default_input)?.name ?? "#" + audio.default_input})` : ""}` : "No input devices found"}
-          options={inputs.map((d) => ({ value: String(d.index), label: deviceLabel(d) }))}
+          options={inputs.map((d) => ({ value: String(d.index), label: deviceLabel(d, !simple) }))}
           onChange={(e) => void saveSettings({ record_device_index: e.target.value === "" ? null : Number(e.target.value) }, { silent: true })}
           disabled={!settings || inputs.length === 0}
-          hint="Used by the recorder. PortAudio/PulseAudio device as reported by the worker."
+          hint={simple ? "Used when you record a voice." : "Used by the recorder. PortAudio/PulseAudio device as reported by the worker."}
         />
         <Select
-          label="Output device (playback and test tone)"
+          label={simple ? "Speakers" : "Output device (playback and test tone)"}
           value={outputValue}
           placeholder={outputs.length ? `System default${audio?.default_output != null ? ` (${outputs.find((d) => d.index === audio.default_output)?.name ?? "#" + audio.default_output})` : ""}` : "No output devices found"}
-          options={outputs.map((d) => ({ value: String(d.index), label: deviceLabel(d) }))}
+          options={outputs.map((d) => ({ value: String(d.index), label: deviceLabel(d, !simple) }))}
           onChange={(e) => void saveSettings({ output_device_index: e.target.value === "" ? null : Number(e.target.value) }, { silent: true })}
           disabled={!settings || outputs.length === 0}
-          hint="In-app playback uses the system default; this device receives the worker's test tone."
+          hint={simple ? "Speech plays through your system's default output; the test tone uses this one." : "In-app playback uses the system default; this device receives the worker's test tone."}
         />
       </div>
       <div className="flex items-center gap-2 flex-wrap">
@@ -87,8 +89,8 @@ export function AudioDevices({ showRecordFormat = true }: AudioDevicesProps) {
         </Button>
       </div>
       <Switch
-        label="Input monitoring"
-        description="Play the microphone back while recording so you can hear yourself. Use headphones — speakers will feed back into the mic."
+        label={simple ? "Hear yourself while recording" : "Input monitoring"}
+        description="Plays the microphone back while recording. Use headphones — speakers will feed back into the mic."
         checked={settings?.monitor_input ?? false}
         onChange={(v) => void saveSettings({ monitor_input: v }, { silent: true })}
         disabled={!settings}

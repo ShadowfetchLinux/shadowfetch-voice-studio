@@ -2,7 +2,7 @@ import { Mic } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Field";
 import { formatDuration } from "@/lib/format";
-import { newVoiceParams, useAppStore } from "@/store/appStore";
+import { useCloneStore } from "@/features/voices/cloneStore";
 import { useCreateStore } from "../createStore";
 
 const EXCERPT = 160;
@@ -15,7 +15,7 @@ export function VoicePanel() {
   const setVoice = useCreateStore((s) => s.setVoice);
   const busy = useCreateStore((s) => s.job != null);
   const hasProject = useCreateStore((s) => s.projectId != null);
-  const navigate = useAppStore((s) => s.navigate);
+  const startClone = useCloneStore((s) => s.start);
 
   const voice = voices.find((v) => v.id === voiceId) ?? null;
   const references = voice?.references ?? [];
@@ -24,9 +24,9 @@ export function VoicePanel() {
   if (voices.length === 0) {
     return (
       <div className="flex flex-col gap-2">
-        <p className="text-sm text-muted">No voices yet. Record or import a short sample first.</p>
-        <Button size="sm" variant="primary" icon={<Mic />} onClick={() => navigate("voices", newVoiceParams())} className="self-start">
-          New voice
+        <p className="text-sm text-muted">No voices yet. Clone one from a short recording first.</p>
+        <Button size="sm" variant="primary" icon={<Mic />} onClick={() => startClone({ kind: "new" }, "editor")} className="self-start">
+          Clone Voice
         </Button>
       </div>
     );
@@ -57,7 +57,7 @@ export function VoicePanel() {
       {voice && references.length === 0 && (
         <div className="flex flex-col gap-2">
           <p className="text-[12.5px] text-warn">This voice has no recording yet.</p>
-          <Button size="sm" icon={<Mic />} onClick={() => navigate("voices", { ...newVoiceParams(), voiceId: voice.id })} className="self-start">
+          <Button size="sm" icon={<Mic />} onClick={() => startClone({ kind: "addRecording", voiceId: voice.id }, "editor")} className="self-start">
             Add recording
           </Button>
         </div>

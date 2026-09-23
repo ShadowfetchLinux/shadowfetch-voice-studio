@@ -31,11 +31,6 @@ export function isTranscriptStale(t: TranscriptState, currentKey: string): boole
   return t.boundKey != null && currentKey !== "" && t.boundKey !== currentKey;
 }
 
-/** Saving is allowed only with non-empty, reviewed, non-stale text. */
-export function canUseTranscript(t: TranscriptState, currentKey: string): boolean {
-  return t.text.trim().length > 0 && t.reviewed && !isTranscriptStale(t, currentKey);
-}
-
 export type TranscriptAction =
   | { type: "transcribed"; text: string; key: string; model: string; language: string }
   | { type: "edit"; text: string; key: string }

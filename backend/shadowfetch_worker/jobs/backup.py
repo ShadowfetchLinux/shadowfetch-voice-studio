@@ -94,7 +94,8 @@ def export(ctx: Ctx, p: ExportParams) -> dict[str, Any]:
             arc = f"assets/takes/{t['id']}.wav"
             files.append((Path(t["path"]), arc))
             takes.append({**{k: t[k] for k in ("id", "segment_id", "engine_id", "model_revision", "reference_id", "sample_rate",
-                                                "duration_s", "seed", "settings", "label", "status", "created_at")}, "file": arc})
+                                                "duration_s", "seed", "settings", "label", "status", "created_at")},
+                          "reference_fingerprint": t.get("reference_fingerprint"), "language": t.get("language"), "file": arc})
     master_file = None
     if proj["master_path"] and Path(proj["master_path"]).exists():
         master_file = "assets/master.wav"
@@ -341,7 +342,8 @@ def import_(ctx: Ctx, p: ImportParams) -> dict[str, Any]:
             db.insert("takes", {"id": tid, "segment_id": sid, "project_id": pid, "engine_id": str(t.get("engine_id") or "unknown"),
                                 "model_revision": t.get("model_revision"), "reference_id": ref_map.get(str(t.get("reference_id"))),
                                 "path": str(dst), "sample_rate": t.get("sample_rate"), "duration_s": t.get("duration_s"), "seed": t.get("seed"),
-                                "settings_json": dumps(t.get("settings") or {}), "label": t.get("label"), "status": "ok"})
+                                "settings_json": dumps(t.get("settings") or {}), "label": t.get("label"), "status": "ok",
+                                "reference_fingerprint": t.get("reference_fingerprint"), "language": t.get("language")})
             take_count += 1
             for s in m.segments:
                 if str(s.get("selected_take_id")) == str(t.get("id")):

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 async function renderApp() {
@@ -7,7 +7,11 @@ async function renderApp() {
   const api = await import("@/lib/api");
   api.__resetForTests();
   const { useAppStore } = await import("@/store/appStore");
-  useAppStore.setState({ page: "home", params: {}, booted: false, bootError: null, settings: null, diagnostics: null, engines: [], models: [] });
+  const { __resetSpeakStore } = await import("@/features/speak/speakStore");
+  const { __resetVoicesStore } = await import("@/store/voicesStore");
+  __resetSpeakStore();
+  __resetVoicesStore();
+  useAppStore.setState({ page: "speak", params: {}, booted: false, bootError: null, settings: null, diagnostics: null, engines: [], models: [] });
   const { default: App } = await import("@/App");
   render(<App />);
   return { useAppStore };
@@ -16,52 +20,37 @@ async function renderApp() {
 describe("App shell with the browser preview mock", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
+    window.localStorage.clear();
   });
 
-  it("boots through the mock transport and labels it clearly", async () => {
+  it("boots through the mock transport into Speak and labels the mock clearly", async () => {
     await renderApp();
-    expect(screen.getByText("Shadowfetch")).toBeInTheDocument();
-    expect(screen.getByText("Voice Studio")).toBeInTheDocument();
     expect(screen.getByText(/preview mock/i)).toBeInTheDocument();
-    // mock settings have onboarding_done=false → the guided setup opens first
-    await waitFor(() => expect(screen.getByText("Let's check this machine")).toBeInTheDocument(), { timeout: 4000 });
-    await waitFor(() => expect(screen.getByText(/Worker: running/)).toBeInTheDocument());
-    // diagnostics arrive from the mock and are rendered truthfully (mock-labelled)
-    await waitFor(() => expect(screen.getAllByText(/Mock GPU \(mock\)/).length).toBeGreaterThan(0), { timeout: 4000 });
+    expect(await screen.findByRole("textbox", { name: "Text to speak" }, { timeout: 4000 })).toBeInTheDocument();
+    // the mock's saved voices fill the voice menu
+    await waitFor(() => expect(screen.getByRole("button", { name: /Voice: Bob/ })).toBeInTheDocument(), { timeout: 4000 });
   });
 
-  it("navigates with the sidebar and number-key shortcuts", async () => {
+  it("moves between Speak, Voices and Settings with the top bar", async () => {
     const user = userEvent.setup();
     const { useAppStore } = await renderApp();
-    await waitFor(() => expect(screen.getByText("Let's check this machine")).toBeInTheDocument(), { timeout: 4000 });
-    await user.click(screen.getByRole("button", { name: /^Home/ }));
-    expect(screen.getByText("Three steps")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /New voice/ }).length).toBeGreaterThan(0);
-    expect(screen.getByText("Create speech")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText(/Preview project 1 \(mock\)/)).toBeInTheDocument(), { timeout: 4000 });
+    await screen.findByRole("textbox", { name: "Text to speak" }, { timeout: 4000 });
+    const nav = screen.getByRole("navigation", { name: "Main" });
 
-    await user.click(screen.getByRole("region", { name: "Get started" }).querySelector("button")!);
-    expect(await screen.findByRole("heading", { name: "New voice" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /Record/ })).toBeInTheDocument();
+    await user.click(within(nav).getByRole("button", { name: "Voices" }));
+    expect(await screen.findByRole("heading", { name: "Voices" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Sarah" })).toBeInTheDocument(), { timeout: 4000 });
     expect(useAppStore.getState().page).toBe("voices");
-    expect(useAppStore.getState().params.action).toBe("new");
 
-    await user.click(screen.getByRole("button", { name: /^Home/ }));
-    await user.keyboard("n");
-    await waitFor(() => {
-      expect(useAppStore.getState().page).toBe("voices");
-      expect(useAppStore.getState().params.action).toBe("new");
-    });
-    expect(await screen.findByRole("heading", { name: "New voice" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByText("Play speech automatically")).toBeInTheDocument();
+    // engine and model management are behind Advanced
+    expect(screen.queryByText("Models & engines")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Advanced/ }));
+    expect(await screen.findByText("Models & engines")).toBeInTheDocument();
 
-    await user.keyboard("5");
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument());
-    expect(screen.getByText("Audio devices")).toBeInTheDocument();
-    expect(screen.getByText("Engines & models")).toBeInTheDocument();
-
-    await user.keyboard("?");
-    expect(await screen.findByRole("dialog", { name: "Keyboard shortcuts" })).toBeInTheDocument();
-    await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await user.click(within(nav).getByRole("button", { name: "Speak" }));
+    expect(await screen.findByRole("textbox", { name: "Text to speak" })).toBeInTheDocument();
   });
 });

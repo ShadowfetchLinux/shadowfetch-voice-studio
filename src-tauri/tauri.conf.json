@@ -16,10 +16,10 @@
       {
         "label": "main",
         "title": "Shadowfetch Voice Studio",
-        "width": 1440,
-        "height": 900,
-        "minWidth": 1280,
-        "minHeight": 800,
+        "width": 1180,
+        "height": 780,
+        "minWidth": 720,
+        "minHeight": 560,
         "resizable": true,
         "decorations": true,
         "center": true
@@ -40,8 +40,8 @@
     "active": true,
     "targets": ["deb", "appimage"],
     "category": "Music",
-    "shortDescription": "Private, local voice cloning studio",
-    "longDescription": "Record or import a voice reference, transcribe it, and generate narration with local text-to-speech engines. Everything stays on this machine.",
+    "shortDescription": "Clone a voice, type, press Speak — all on your computer",
+    "longDescription": "Clone a voice from a short recording or audio file, type what it should say, and press Speak. Speech is generated locally with Qwen3-TTS on your NVIDIA GPU; nothing leaves this machine.",
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",

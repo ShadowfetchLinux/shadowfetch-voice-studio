@@ -67,7 +67,7 @@ export function ActionsRow({ selectedIndexes, onRequestCancel }: ActionsRowProps
         <Button icon={<Combine />} disabled={!projectId || busy || !allSegmentsHaveTakes(segments)} loading={job?.kind === "assemble"} onClick={() => void assemble()} title="Concatenate the selected takes into master.wav">
           Assemble
         </Button>
-        <Button icon={<Download />} disabled={!projectId} onClick={() => projectId && navigate("library", { projectId, section: "export" })} title="Open this project's export in the Library">
+        <Button icon={<Download />} disabled={!projectId} onClick={() => projectId && navigate("projects", { projectId, section: "export" })} title="Open this project's export in Projects">
           Export
         </Button>
       </div>

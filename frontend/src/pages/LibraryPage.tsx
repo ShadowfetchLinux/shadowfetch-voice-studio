@@ -4,7 +4,7 @@ import { EmptyState } from "@/components/ui/Feedback";
 import { useAppStore } from "@/store/appStore";
 import { ProjectList, ProjectPreview, RestoreDialog, useLibrary } from "@/features/library";
 
-/** Library: searchable project list on the left, preview + actions for the selected project on the right. */
+/** Projects (advanced, from Settings → Tools): searchable project list on the left, preview + actions for the selected project on the right. */
 export default function LibraryPage() {
   const params = useAppStore((s) => s.params);
   const library = useLibrary();
@@ -33,7 +33,7 @@ export default function LibraryPage() {
         />
       ) : (
         <div className="panel">
-          <EmptyState icon={<Library />} title="Select a project" text="Pick a project on the left to preview its master, edit notes and tags, export, back up or open it in Create." />
+          <EmptyState icon={<Library />} title="Select a project" text="Pick a project on the left to preview its master, edit notes and tags, export, back up or open it in the editor." />
         </div>
       )}
       <RestoreDialog

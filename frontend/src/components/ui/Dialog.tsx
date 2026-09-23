@@ -23,6 +23,9 @@ export interface DialogProps {
 
 const sizeClass = { sm: "max-w-[420px]", md: "max-w-[560px]", lg: "max-w-[760px]" };
 
+/** Open dialogs, innermost last: only the top one reacts to Esc / Tab (a confirm can open over another dialog). */
+const stack: string[] = [];
+
 /**
  * Accessible modal: role=dialog, aria-modal, labelled by its title, focus trapped inside,
  * Esc + backdrop close (unless `locked`), focus restored to the opener on close.
@@ -31,6 +34,12 @@ export function Dialog({ open, onClose, title, description, children, footer, si
   const id = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
+  // Callers pass inline handlers; reading them through refs keeps the open/focus effect from re-running (and moving
+  // focus back to the first control) on every render — e.g. after each keystroke in a field inside the dialog.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const lockedRef = useRef(locked);
+  lockedRef.current = locked;
 
   useEffect(() => {
     if (!open) return;
@@ -40,10 +49,12 @@ export function Dialog({ open, onClose, title, description, children, footer, si
     // Defer so the portal content is laid out before focusing.
     const t = window.setTimeout(() => target?.focus(), 0);
 
+    stack.push(id);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !locked) {
+      if (stack[stack.length - 1] !== id) return;
+      if (e.key === "Escape" && !lockedRef.current) {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key === "Tab" && panel) {
@@ -68,12 +79,14 @@ export function Dialog({ open, onClose, title, description, children, footer, si
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
+      const at = stack.lastIndexOf(id);
+      if (at >= 0) stack.splice(at, 1);
       window.clearTimeout(t);
       document.removeEventListener("keydown", onKey, true);
       document.body.style.overflow = prevOverflow;
       restoreRef.current?.focus?.();
     };
-  }, [open, locked, onClose, initialFocusRef]);
+  }, [open, initialFocusRef, id]);
 
   if (!open) return null;
   return createPortal(
