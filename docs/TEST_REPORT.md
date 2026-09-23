@@ -1,4 +1,4 @@
-# Test report — v0.1.1 + the Speak redesign
+# Test report — v0.2.0 (the Speak redesign)
 
 Verified on Linux (Ubuntu 24.04-class) with an NVIDIA GPU, FFmpeg, Python 3.12, and the app's isolated
 engine environments. Exact host names, home directories, CPU/GPU SKUs, RAM, driver builds, and disk
