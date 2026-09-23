@@ -18,7 +18,7 @@ together — happens underneath.
 - **Transcription:** faster-whisper, CPU by default.
 - **Shell:** Tauri 2 (Rust) + React/TypeScript; Python workers for audio and inference; FFmpeg for media; SQLite for metadata.
 
-Status: v0.1.1 standalone Linux desktop app. See [docs/TEST_REPORT.md](docs/TEST_REPORT.md) for what has been verified on Linux with an NVIDIA GPU.
+Status: v0.2.0 standalone Linux desktop app. See [docs/TEST_REPORT.md](docs/TEST_REPORT.md) for what has been verified on Linux with an NVIDIA GPU.
 
 ## Requirements
 
